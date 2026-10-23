@@ -1,0 +1,88 @@
+.summary .big-number {
+  margin: 0.1rem 0;
+}
+
+.category-share {
+  margin-top: 1rem;
+}
+.stacked-bar {
+  display: flex;
+  height: 0.7rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.stacked-bar > div + div {
+  border-left: 2px solid var(--surface);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}
+
+.category-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+}
+
+.positions .bar-col {
+  width: 18%;
+  min-width: 90px;
+}
+
+.price-button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-weight: inherit;
+  padding: 0;
+  gap: 0.3rem;
+  border-bottom: 1px dashed var(--muted);
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
+}
+.price-button:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.warn-button {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.broker-view summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.broker-view summary h2 {
+  display: inline;
+  margin: 0;
+}
+.broker-view[open] summary {
+  margin-bottom: 0.5rem;
+}
+.owners {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+}
+.owner-chip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+}

@@ -73,7 +73,7 @@ export function MarketBar() {
         ) : missing.length > 0 ? (
           <span className="warn-text">{missing.length} missing ({missing.join(', ')})</span>
         ) : (
-          <span>{oldest ? `oldest from ${fmtAgo(oldest)}` : 'ok'}</span>
+          <span>{oldest ? `updated ${fmtAgo(oldest)}` : 'ok'}</span>
         )}
         {failures.length > 0 && (
           <details className="failures">

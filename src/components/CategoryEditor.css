@@ -1,0 +1,63 @@
+.category-form fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.category-form legend {
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 0.25rem;
+}
+.category-form .hint {
+  margin: 0.25rem 0;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.swatch {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.swatch.selected {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.stock-rows td {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+  vertical-align: top;
+}
+.stock-rows .ticker-input {
+  width: 7.5rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+}
+.stock-rows tr.has-error .ticker-input {
+  border-color: var(--bad);
+}
+.stock-rows .error-text {
+  display: block;
+  max-width: 14rem;
+}
+.category-form.stack > * + * {
+  margin-top: 1.1rem;
+}
+@media (max-width: 640px) {
+  .stock-rows .ticker-input {
+    width: 5.2rem;
+  }
+  .stock-rows .number-field.narrow input[type='text'] {
+    width: 3.6rem;
+  }
+  .stock-rows th,
+  .stock-rows td {
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+  }
+}

@@ -1,0 +1,21 @@
+.tx-orders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+}
+.tx-note {
+  font-style: italic;
+  color: var(--muted);
+}
+.tx-card details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+.tx-card details[open] summary {
+  margin-bottom: 0.5rem;
+}

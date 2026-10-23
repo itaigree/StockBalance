@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Category } from '../types';
 import { splitContribution } from '../engine';
 import { useApp } from '../state/AppState';
-import { fmtIls, fmtPercent, fmtShares } from '../lib/format';
+import { fmtIls, fmtPercent, fmtShares, isZeroMoney } from '../lib/format';
 import { describeRule } from '../lib/rules';
 import { CategoryEditor } from '../components/CategoryEditor';
 import { Modal } from '../components/Modal';
@@ -132,7 +132,7 @@ export function CategoriesPage() {
             {Object.keys(deleting.holdings).length > 0
               ? `Its holdings (${Object.keys(deleting.holdings).length} stock${Object.keys(deleting.holdings).length === 1 ? '' : 's'}) will no longer be tracked. `
               : ''}
-            {deleting.cashIls !== 0 ? `Its cash (${fmtIls(deleting.cashIls)}) will be forgotten too. ` : ''}
+            {!isZeroMoney(deleting.cashIls) ? `Its cash (${fmtIls(deleting.cashIls)}) will be forgotten too. ` : ''}
             Past purchases stay in History.
           </p>
           <p className="muted small-text">This can't be undone, except by restoring a backup.</p>
@@ -144,14 +144,14 @@ export function CategoriesPage() {
 
 function HoldingsSummary({ category }: { category: Category }) {
   const held = Object.entries(category.holdings).filter(([, n]) => n > 0);
-  if (held.length === 0 && category.cashIls === 0) return null;
+  if (held.length === 0 && isZeroMoney(category.cashIls)) return null;
   return (
     <div className="muted small-text">
       Owns{' '}
       {held.length > 0
         ? held.map(([t, n]) => `${fmtShares(n)} ${t}`).join(', ')
         : 'no shares'}
-      {category.cashIls !== 0 && ` · ${fmtIls(category.cashIls)} cash`}
+      {!isZeroMoney(category.cashIls) && ` · ${fmtIls(category.cashIls)} cash`}
     </div>
   );
 }

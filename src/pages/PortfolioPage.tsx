@@ -4,7 +4,7 @@ import { valueCategory, type CategoryValuation } from '../engine';
 import { sampleData } from '../data/sample';
 import { allTickers, priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
-import { fmtAgo, fmtIls, fmtPercent, fmtPp, fmtShares, fmtUsd } from '../lib/format';
+import { fmtAgo, fmtIls, fmtPercent, fmtPp, fmtShares, fmtUsd, isZeroMoney } from '../lib/format';
 import { MarketBar } from '../components/MarketBar';
 import { PriceEditModal } from '../components/PriceEditModal';
 import { WeightBar } from '../components/WeightBar';
@@ -43,7 +43,7 @@ export function PortfolioPage() {
             <div className="big-number">{rate ? fmtIls(investedUsd * rate + cashIls, true) : fmtUsd(investedUsd, true)}</div>
             <div className="muted small-text">
               {rate ? `${fmtUsd(investedUsd, true)} in stocks` : 'Set the USD/ILS rate to see shekel values'}
-              {cashIls !== 0 && ` + ${fmtIls(cashIls, true)} cash`}
+              {!isZeroMoney(cashIls) && ` + ${fmtIls(cashIls, true)} cash`}
             </div>
           </div>
           <div>
@@ -53,7 +53,7 @@ export function PortfolioPage() {
           </div>
           <div>
             <div className="muted small-text">Not invested yet</div>
-            <div className={`big-number${cashIls < 0 ? ' bad-text' : ''}`}>{fmtIls(cashIls, true)}</div>
+            <div className={`big-number${cashIls < 0 && !isZeroMoney(cashIls) ? ' bad-text' : ''}`}>{fmtIls(cashIls, true)}</div>
             <div className="muted small-text">Cash kept for each category</div>
           </div>
         </div>
@@ -166,10 +166,10 @@ function CategoryCard({
             <strong>{fmtUsd(valuation.investedUsd)}</strong>
             {rate && <span className="muted"> ({fmtIls(valuation.investedUsd * rate, true)})</span>}
           </span>
-          {category.cashIls !== 0 && (
+          {!isZeroMoney(category.cashIls) && (
             <span>
               <span className="muted">Cash </span>
-              <strong className={category.cashIls < 0 ? 'bad-text' : ''}>{fmtIls(category.cashIls)}</strong>
+              <strong className={category.cashIls < 0 && !isZeroMoney(category.cashIls) ? 'bad-text' : ''}>{fmtIls(category.cashIls)}</strong>
             </span>
           )}
         </div>

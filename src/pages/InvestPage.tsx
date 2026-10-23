@@ -3,7 +3,7 @@ import type { Category } from '../types';
 import { planPurchase, splitContribution, type PlanOptions } from '../engine';
 import { priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
-import { fmtIls, fmtRate, fmtUsd } from '../lib/format';
+import { fmtIls, fmtRate, fmtUsd, isZeroMoney } from '../lib/format';
 import { describeRule } from '../lib/rules';
 import { MarketBar } from '../components/MarketBar';
 import { NumberField } from '../components/NumberField';
@@ -36,7 +36,7 @@ export function InvestPage() {
     budgets[c.id] = newMoney[c.id] + (useCash ? Math.max(0, c.cashIls) : 0);
   }
   const sumNew = Object.values(newMoney).reduce((a, b) => a + b, 0);
-  const hasCash = categories.some((c) => c.cashIls !== 0);
+  const hasCash = categories.some((c) => !isZeroMoney(c.cashIls));
   const edited = Object.keys(overrides).length > 0;
   const started = (total ?? 0) > 0 || Object.values(overrides).some((v) => (v ?? 0) > 0);
 
@@ -325,8 +325,8 @@ function SplitRow({
         <NumberField value={amount} onChange={onChange} prefix="₪" aria-label={`New money for ${category.name}`} />
       </td>
       {showCash && (
-        <td className={`num hide-sm${category.cashIls < 0 ? ' bad-text' : ''}`}>
-          {category.cashIls === 0 ? '—' : cashUsed > 0 ? fmtIls(cashUsed) : fmtIls(category.cashIls)}
+        <td className={`num hide-sm${category.cashIls < 0 && !isZeroMoney(category.cashIls) ? ' bad-text' : ''}`}>
+          {isZeroMoney(category.cashIls) ? '—' : cashUsed > 0 ? fmtIls(cashUsed) : fmtIls(category.cashIls)}
         </td>
       )}
       <td className="num">

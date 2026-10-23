@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Category, Transaction } from '../types';
 import { useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
-import { fmtDate, fmtIls, fmtRate, fmtShares, fmtUsd } from '../lib/format';
+import { fmtDate, fmtIls, fmtRate, fmtShares, fmtUsd, isZeroMoney } from '../lib/format';
 import { Modal } from '../components/Modal';
 import './HistoryPage.css';
 
@@ -112,8 +112,8 @@ function TransactionCard({ tx, byId, onUndo }: { tx: Transaction; byId: Map<stri
                     </td>
                     <td className="num">{fmtIls(cash?.newMoneyIls ?? 0)}</td>
                     <td className="num">{fmtIls(cash?.spentIls ?? 0)}</td>
-                    <td className={`num${change < 0 ? ' bad-text' : ''}`}>
-                      {change >= 0 ? '+' : '−'}
+                    <td className={`num${change < 0 && !isZeroMoney(change) ? ' bad-text' : ''}`}>
+                      {change >= 0 || isZeroMoney(change) ? '+' : '−'}
                       {fmtIls(Math.abs(change))}
                     </td>
                   </tr>

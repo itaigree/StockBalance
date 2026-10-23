@@ -336,6 +336,21 @@ describe('ledger', () => {
     expect(reverted[1].cashIls).toBeCloseTo(0, 6);
   });
 
+  it('leaves exactly 0 cash when a category spends its whole budget', () => {
+    // Three categories share one whole share, so each gets an awkward fraction of it.
+    const cats = [cat('a', { X: 100 }), cat('b', { X: 100 }), cat('c', { X: 100 })];
+    const p = planPurchase(input(cats, { X: 30 }, { a: 10, b: 10, c: 10 }, { wholeShares: true }));
+    expect(p.orders).toEqual([{ ticker: 'X', shares: 1, priceUsd: 30, costUsd: 30 }]);
+    const tx = transactionFromPlan(
+      p,
+      { orders: [{ ticker: 'X', shares: 1, priceUsd: 30 }], usdIls: 1, fxFeePercent: 0, date: 'd', newMoneyIls: { a: 10, b: 10, c: 10 } },
+      't',
+    );
+    const after = applyTransaction(cats, tx);
+    expect(after.map((c) => c.cashIls)).toEqual([0, 0, 0]);
+    expect(after.reduce((s, c) => s + c.holdings.X, 0)).toBeCloseTo(1, 9);
+  });
+
   it('never leaves negative shares when reverting', () => {
     const tx = transactionFromPlan(plan, executed, 'tx1');
     const edited = applyTransaction(categories, tx).map((c) => ({ ...c, holdings: {} }));

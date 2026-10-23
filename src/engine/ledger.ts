@@ -41,7 +41,8 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
     const newMoneyIls = executed.newMoneyIls[categoryId] ?? 0;
     if (!Number.isFinite(newMoneyIls)) throw new Error('A category amount is invalid.');
     const spentUsd = allocations.filter((a) => a.categoryId === categoryId).reduce((s, a) => s + a.costUsd, 0);
-    const spentIls = spentUsd * rate;
+    // Money is kept in whole agorot, so a category that spends its whole budget ends at exactly 0.
+    const spentIls = roundTo(spentUsd * rate, 2);
     if (newMoneyIls !== 0 || spentIls !== 0) cash.push({ categoryId, newMoneyIls, spentIls });
   }
 
@@ -81,8 +82,8 @@ function update(categories: Category[], tx: Transaction, sign: 1 | -1): Category
       if (next <= 0) delete holdings[a.ticker];
       else holdings[a.ticker] = next;
     }
-    const cashDelta = cash.reduce((s, x) => s + x.newMoneyIls - x.spentIls, 0);
-    return { ...c, holdings, cashIls: roundTo(c.cashIls + sign * cashDelta, 6) };
+    const cashDelta = roundTo(cash.reduce((s, x) => s + x.newMoneyIls - x.spentIls, 0), 2);
+    return { ...c, holdings, cashIls: roundTo(c.cashIls + sign * cashDelta, 2) };
   });
 }
 

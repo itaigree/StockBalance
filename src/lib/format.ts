@@ -5,12 +5,17 @@ const ils0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'ILS'
 
 /** "$1,234.56" (or "$1,235" with `whole`). */
 export function fmtUsd(n: number, whole = false): string {
-  return (whole ? usd0 : usd).format(fixNegZero(n));
+  return (whole ? usd0 : usd).format(roundMoney(n, whole));
 }
 
 /** "₪1,234.56" (or "₪1,235" with `whole`). */
 export function fmtIls(n: number, whole = false): string {
-  return (whole ? ils0 : ils).format(fixNegZero(n));
+  return (whole ? ils0 : ils).format(roundMoney(n, whole));
+}
+
+/** True when an amount of money rounds to 0 (e.g. −0.0000001 left by floating point). */
+export function isZeroMoney(n: number): boolean {
+  return Math.abs(n) < 0.005;
 }
 
 /** Up to 4 decimals, trailing zeros trimmed: "12", "0.3333", "1,250.5". */
@@ -76,6 +81,12 @@ export function parseNumber(s: string): number | null {
   if (!/^-?(\d+\.?\d*|\.\d+)$/.test(cleaned)) return null;
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Round to what will be displayed, so tiny negatives don't show as "−₪0.00". */
+function roundMoney(n: number, whole: boolean): number {
+  const f = whole ? 1 : 100;
+  return fixNegZero(Math.round(n * f) / f);
 }
 
 function fixNegZero(n: number): number {

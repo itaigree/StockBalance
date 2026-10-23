@@ -134,33 +134,54 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
   const dataRef = useRef(data);
   dataRef.current = data;
 
+  /** Tickers already requested this session, so failing ones aren't retried on every change. */
+  const requested = useRef(new Set<string>());
+  const refreshedOnce = useRef(false);
+  const inFlight = useRef(0);
+
   const refreshMarket = useCallback(async (tickers?: string[]) => {
+    refreshedOnce.current = true;
     const current = dataRef.current;
     // With manual prices only the exchange rate is fetched.
     const list = current.settings.priceProvider === 'manual' ? [] : (tickers ?? allTickers(current.categories));
+    for (const t of list) requested.current.add(t);
+    inFlight.current++;
     setMarket((m) => ({ ...m, loading: true }));
     const [priceResult, fxResult] = await Promise.all([
       fetchPrices(list, current.settings),
       fetchUsdIls(current.settings),
     ]);
+    inFlight.current--;
     if (Object.keys(priceResult.quotes).length > 0) dispatch({ type: 'setPrices', quotes: priceResult.quotes });
     if ('quote' in fxResult) dispatch({ type: 'setFx', fx: fxResult.quote });
-    setMarket({
-      loading: false,
-      lastRun: new Date().toISOString(),
-      priceFailures: priceResult.failures,
-      fxError: 'error' in fxResult ? fxResult.error : null,
+    setMarket((m) => {
+      // A refresh of some tickers only replaces what is known about those tickers.
+      const failures = tickers ? { ...m.priceFailures } : {};
+      for (const t of list) delete failures[t];
+      return {
+        loading: inFlight.current > 0,
+        lastRun: new Date().toISOString(),
+        priceFailures: { ...failures, ...priceResult.failures },
+        fxError: 'error' in fxResult ? fxResult.error : null,
+      };
     });
   }, []);
 
-  // Refresh once on start-up when there is something to price.
-  const startedRef = useRef(false);
+  // Refresh everything once at start-up (as soon as there is something to price), and fetch prices
+  // for stocks added later that have none yet.
+  const tickersKey = allTickers(data.categories).join(',');
   useEffect(() => {
-    if (startedRef.current || initialData) return;
-    startedRef.current = true;
+    if (initialData) return;
     const d = dataRef.current;
-    if (d.categories.length > 0) void refreshMarket();
-  }, [refreshMarket, initialData]);
+    if (d.categories.length === 0) return;
+    if (!refreshedOnce.current) {
+      void refreshMarket();
+      return;
+    }
+    if (d.settings.priceProvider === 'manual') return;
+    const missing = allTickers(d.categories).filter((t) => !(d.prices[t]?.priceUsd > 0) && !requested.current.has(t));
+    if (missing.length > 0) void refreshMarket(missing);
+  }, [tickersKey, refreshMarket, initialData]);
 
   const actions = useMemo<AppActions>(
     () => ({

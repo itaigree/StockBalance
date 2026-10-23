@@ -44,7 +44,8 @@ Amounts are rounded to 0.01 ILS using largest-remainder rounding so that the amo
 
 In the planner the user can override any category's amount; the split is only the default.
 Each category's budget for the plan = its amount of new money + (optionally, default on) its
-carried-over `cashIls` when that is positive.
+carried-over `cashIls`, floored at 0 — leftovers add to the budget and an earlier overspend
+(negative cash) is taken back from it.
 
 ## The allocation algorithm (`planPurchase`)
 
@@ -85,13 +86,15 @@ stays uninvested.
 `X_t = Σ_c x_ct` is the amount the combined order for ticker `t` should have.
 Repeat until nothing changes:
 
-- If `maxTickers` is set and more than `maxTickers` tickers have `X_t > 0`, remove from the allowed
-  set the ticker with the smallest `X_t` and redo step 1 for the categories that had it.
-- If `minOrderUsd > 0` and some ticker has `0 < X_t < minOrderUsd`, remove the one with the smallest
-  `X_t` and redo step 1.
+- If `maxTickers` is set and more than `maxTickers` tickers have `X_t > 0`, drop (for this round)
+  the ticker with the smallest `X_t` and redo step 1.
+- If `minOrderUsd > 0` and some ticker has `0 < X_t < minOrderUsd`, drop the one with the smallest
+  `X_t` and redo step 1. With whole shares, a ticker whose single share already costs at least
+  `minOrderUsd` is not dropped here: its order will be 0 or ≥ 1 share, which is checked after
+  rounding.
 
-Removing a ticker never lowers the other tickers' `X_t`, so this terminates. A category whose
-tickers were all removed keeps its budget as cash (warning: it will be included next time via
+Dropping a ticker never lowers the other tickers' `X_t`, so this terminates. A category whose
+tickers were all dropped keeps its budget as cash (warning: it will be included next time via
 `cashIls`, so it gets its turn — the constraints act like a lazy round-robin).
 
 ### Step 3 — whole shares (only when `wholeShares`)
@@ -101,16 +104,19 @@ tickers were all removed keeps its budget as cash (warning: it will be included 
   `q_ct = shares_t · x_ct / X_t` (fractional shares per category are fine). This never exceeds
   any category's budget.
 - **Top-up with leftovers.** Repeatedly consider buying one more share of an allowed ticker `t`:
-  - Who pays: categories that have `t` as an allowed target and have leftover money. The share's
-    price is split between them in proportion to their remaining need for `t`
-    (`max(0, w_ct·T_c − V'_ct)`), capped by each one's leftover; anything not covered that way is
-    split in proportion to the remaining leftovers (capped). If their leftovers together are less
-    than `p_t`, `t` is not a candidate.
+  - Who pays: categories that have `t` as an allowed target, are still below their target value
+    for it (gap `g = w_ct·T_c − V'_ct > 0`) and have leftover money. Each pays at most
+    `min(leftover, 2g)` — so no paying category ends further from its own target than before. The
+    price is split in proportion to the gaps (capped), and anything not covered that way in
+    proportion to the remaining room (capped). If the caps together are less than `p_t`, `t` is not
+    a candidate.
   - A new order (ticker not bought yet) must respect `maxTickers`, and every order must end up at
     least `minOrderUsd`.
   - Pick the candidate that decreases `E` the most; stop when no candidate decreases `E`.
-- If an order ended below `minOrderUsd` after rounding, remove that ticker from the allowed set and
-  start again from step 1 (terminates: the allowed set only shrinks).
+- If an order ended below `minOrderUsd` after rounding, ban that ticker and start again from step 1.
+- If some tickers were dropped in step 2 and a ticker that kept its place couldn't buy even one
+  share, ban those wasted tickers and start again from step 1, so the dropped tickers get another
+  chance. Both rules only add to the banned set, so this terminates.
 
 When `wholeShares` is false, orders are `X_t` dollars (`shares = X_t / p_t`), no rounding.
 
@@ -125,8 +131,9 @@ When `wholeShares` is false, orders are `X_t` dollars (`shares = X_t / p_t`), no
 
 Invariants (tested with property-based tests):
 - Every category spends ≤ its budget (+1e-6 tolerance); no negative buys.
-- The plan never makes the balance objective `E` worse than buying nothing (no stock is pushed above
-  its target value by the ideal buys, and extra whole shares are only bought when they lower `E`).
+- The plan never makes any single category's part of `E` worse than buying nothing (no stock is
+  pushed above its target value by the ideal buys, and extra whole shares are only paid for by
+  categories they don't push further from target).
 - Σ_c q_ct = shares_t for every order; whole shares when `wholeShares`.
 - Number of orders ≤ `maxTickers` (when set and satisfiable); every order ≥ `minOrderUsd`.
 - Only target tickers with weight > 0 are bought by a category.
@@ -138,9 +145,18 @@ Invariants (tested with property-based tests):
 The user confirms or edits the executed shares and price of each planned order and the FX rate.
 For each ticker the executed shares are split between categories in proportion to the planned
 category shares (`q_ct`), rounded to 6 decimals with largest-remainder so they add up exactly.
-Category cost = shares × executed price; `spentIls` uses the executed FX rate and fee.
+Category cost = shares × executed price; `spentIls` uses the executed FX rate and fee and is
+rounded to agorot, as is `cashIls`.
 Applying a transaction adds the shares to `holdings` and adds `newMoneyIls − spentIls` to
 `cashIls`. Reverting does the opposite (removing tickers whose shares become ~0).
+
+When a plan buys nothing (e.g. too little money for a share), the user can still record it with no
+orders: the new money is added to each category's cash and is included next time.
+
+The plan shown on the Invest page is saved in the browser (with its inputs) until it is recorded or
+the inputs are cleared. After a reload — which also refreshes prices — that saved plan is shown
+and recorded as it was, instead of a recalculation with new prices; the user can choose to
+recalculate.
 
 ## Persistence
 

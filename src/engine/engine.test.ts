@@ -259,6 +259,41 @@ describe('planPurchase', () => {
     expect(orderMap(plan)).toEqual({ A: 60 });
   });
 
+  // Found in review: the limits were decided on fractional amounts, before rounding to whole shares.
+  it('gives a dropped stock another chance when the kept one cannot buy a single share', () => {
+    const rate37 = (cats: Category[], prices: Record<string, number>, budgets: Record<string, number>, options: Partial<PlanOptions>) => ({
+      ...input(cats, prices, budgets, { wholeShares: true, ...options }),
+      usdIls: 3.7,
+    });
+    // VOO keeps the only slot but $500 can't buy a $550 share; BND can use the money instead.
+    const a = planPurchase(rate37([cat('p', { VOO: 60, BND: 40 })], { VOO: 550, BND: 72 }, { p: 1850 }, { maxTickers: 1 }));
+    expect(orderMap(a)).toEqual({ BND: 3 });
+    expect(a.warnings.join(' ')).not.toMatch(/isn't enough/);
+
+    const b = planPurchase(
+      rate37([cat('p', { VOO: 40, VXUS: 30, BND: 30 })], { VOO: 550, VXUS: 65, BND: 72 }, { p: 2000 }, { maxTickers: 2 }),
+    );
+    expect(orderMap(b)).toEqual({ VXUS: 2, BND: 2 });
+  });
+
+  it('keeps a stock whose single share already meets the minimum order', () => {
+    const plan = planPurchase(input([cat('p', { A: 90, B: 10 })], { A: 500, B: 150 }, { p: 900 }, { wholeShares: true, minOrderUsd: 100 }));
+    expect(orderMap(plan)).toEqual({ A: 1, B: 1 });
+  });
+
+  it('never makes a category pay toward a stock it is already above target in', () => {
+    const pension = cat('pension', { VOO: 100 });
+    const kids = cat('kids', { VOO: 50, QQQ: 50 }, { VOO: 1 });
+    const plan = planPurchase(input([pension, kids], { VOO: 500, QQQ: 480 }, { pension: 400, kids: 400 }, { wholeShares: true }));
+    expect(sharesOf(plan, 'kids').VOO).toBeUndefined();
+  });
+
+  it('does not drop a fractional order for missing a fraction of a cent of the minimum', () => {
+    const plan = planPurchase(input([cat('p', { VOO: 100 })], { VOO: 333.33 }, { p: 100 }, { minOrderUsd: 100 }));
+    expect(plan.orders).toHaveLength(1);
+    expect(plan.orders[0].costUsd).toBeCloseTo(100, 3);
+  });
+
   it('returns errors instead of orders for invalid input', () => {
     const c = cat('p', { A: 100 });
     expect(planPurchase({ ...input([c], { A: 1 }, { p: 10 }), usdIls: 0 }).errors).toHaveLength(1);

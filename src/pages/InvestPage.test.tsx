@@ -4,6 +4,12 @@ import { planPurchase } from '../engine';
 import { priceMap } from '../state/AppState';
 import { renderApp, sample, savedData } from '../test-utils';
 
+const orderRows = () =>
+  within(screen.getByRole('region', { name: 'Orders to place' }))
+    .getAllByRole('row')
+    .slice(1, -1)
+    .map((r) => within(r).getAllByRole('cell').slice(0, 2).map((c) => c.textContent).join(' '));
+
 describe('InvestPage', () => {
   it('splits the money and lists one order per stock', async () => {
     const data = sample();
@@ -101,5 +107,55 @@ describe('InvestPage', () => {
     await user.type(screen.getByLabelText(/Max different stocks/), '1');
     const orders = screen.getByRole('region', { name: 'Orders to place' });
     expect(within(orders).getAllByRole('row')).toHaveLength(3); // header, one order, total
+  });
+
+  it('keeps the money as cash when nothing can be bought', async () => {
+    const data = sample();
+    data.categories = [{ ...data.categories[0], targets: [{ ticker: 'VOO', percent: 100 }], holdings: {}, contribution: { kind: 'remainder' } }];
+    const { user } = renderApp('invest', data);
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '1000'); // $270 < one VOO share
+    await user.click(screen.getByRole('button', { name: 'Keep the money as cash for next time' }));
+    expect(screen.getByText(/added to each category's cash/)).toBeInTheDocument();
+    await waitFor(() => expect(savedData().categories[0].cashIls).toBe(1000));
+    expect(savedData().transactions[0]).toMatchObject({ orders: [], allocations: [] });
+    // Next time the cash is part of the budget.
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '1500');
+    expect(screen.getByText('₪2,500.00', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
+  });
+
+  it('shows and records the plan that was made before a reload, even if prices changed', async () => {
+    const first = renderApp('invest', sample());
+    await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '5500');
+    const planned = orderRows();
+    first.unmount();
+
+    // Prices moved since (e.g. refreshed at start-up).
+    const later = sample();
+    later.prices.VOO = { ...later.prices.VOO, priceUsd: 600 };
+    later.prices.BND = { ...later.prices.BND, priceUsd: 70 };
+    const { user } = renderApp('invest', later);
+    expect(screen.getByText(/This is the plan you made/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('5,500');
+    expect(orderRows()).toEqual(planned);
+
+    await user.click(screen.getByRole('button', { name: /record the purchase/ }));
+    const dialog = screen.getByRole('dialog');
+    for (const row of planned) expect(within(dialog).getByText(row.split(' ')[0])).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: "Recalculate with today's prices" }));
+    expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+  });
+
+  it('subtracts an earlier overspend from the budget', async () => {
+    const data = sample();
+    data.categories[0].cashIls = -300;
+    data.categories[1].cashIls = 300;
+    const { user } = renderApp('invest', data);
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    const split = screen.getByRole('region', { name: 'Split between categories' });
+    const totalRow = within(split).getAllByRole('row').at(-1)!;
+    expect(within(totalRow).getAllByRole('cell').at(-1)!.textContent).toBe('₪10,000.00');
   });
 });

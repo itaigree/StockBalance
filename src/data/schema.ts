@@ -119,6 +119,11 @@ export function parseAppData(raw: unknown): ParseResult {
     if (ids.has(c.id)) return { ok: false, error: `Invalid data at categories[${i}].id: the id "${c.id}" is used twice.` };
     ids.add(c.id);
   }
+  const txIds = new Set<string>();
+  for (const [i, t] of d.transactions.entries()) {
+    if (txIds.has(t.id)) return { ok: false, error: `Invalid data at transactions[${i}].id: the id "${t.id}" is used twice.` };
+    txIds.add(t.id);
+  }
 
   const categories: Category[] = d.categories.map((c) => ({
     id: c.id,

@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Category } from '../types';
-import { planPurchase, splitContribution, type PlanOptions } from '../engine';
+import { planPurchase, splitContribution, transactionFromPlan, type PlanOptions } from '../engine';
 import { priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
-import { fmtIls, fmtRate, fmtUsd, isZeroMoney } from '../lib/format';
+import { fmtAgo, fmtDateTime, fmtIls, fmtRate, fmtUsd, isZeroMoney } from '../lib/format';
+import { newId } from '../lib/ids';
+import { clearDraft, loadDraft, saveDraft, type InvestInputs, type SavedPlan } from '../lib/investDraft';
 import { describeRule } from '../lib/rules';
 import { MarketBar } from '../components/MarketBar';
 import { NumberField } from '../components/NumberField';
@@ -15,17 +17,31 @@ export function InvestPage() {
   const { data, actions } = useApp();
   const { categories, settings } = data;
 
-  const [total, setTotal] = useState<number | null>(null);
+  // A plan saved earlier (e.g. before placing the orders and reloading) is restored as it was.
+  const [draft] = useState(() => loadDraft());
+  const restored = draft?.inputs;
+  const [total, setTotal] = useState<number | null>(restored?.total ?? null);
   /** Amounts the user typed for this purchase (category id → ILS). */
-  const [overrides, setOverrides] = useState<Record<string, number | null>>({});
-  const [useCash, setUseCash] = useState(true);
-  const [wholeShares, setWholeShares] = useState(settings.wholeShares);
-  const [minOrder, setMinOrder] = useState<number | null>(settings.minOrderUsd);
-  const [maxTickers, setMaxTickers] = useState<number | null>(settings.maxTickersPerPurchase);
-  const [feePercent, setFeePercent] = useState<number | null>(settings.fxFeePercent);
-  const [rateOverride, setRateOverride] = useState<number | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, number | null>>(restored?.overrides ?? {});
+  const [useCash, setUseCash] = useState(restored?.useCash ?? true);
+  const [wholeShares, setWholeShares] = useState(restored?.wholeShares ?? settings.wholeShares);
+  const [minOrder, setMinOrder] = useState<number | null>(restored ? restored.minOrder : settings.minOrderUsd);
+  const [maxTickers, setMaxTickers] = useState<number | null>(restored ? restored.maxTickers : settings.maxTickersPerPurchase);
+  const [feePercent, setFeePercent] = useState<number | null>(restored ? restored.feePercent : settings.fxFeePercent);
+  const [rateOverride, setRateOverride] = useState<number | null>(restored?.rateOverride ?? null);
+  /** The restored plan, shown instead of recalculating until the user changes something. */
+  const [frozen, setFrozen] = useState<SavedPlan | null>(draft?.saved ?? null);
   const [recording, setRecording] = useState(false);
-  const [recorded, setRecorded] = useState(false);
+  const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
+
+  const inputs: InvestInputs = { total, overrides, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride };
+  const inputsKey = JSON.stringify(inputs);
+  const lastInputsKey = useRef(inputsKey);
+  useEffect(() => {
+    if (lastInputsKey.current === inputsKey) return;
+    lastInputsKey.current = inputsKey;
+    setFrozen(null);
+  }, [inputsKey]);
 
   const usdIls = rateOverride ?? data.fx?.usdIls ?? null;
   const split = useMemo(() => splitContribution(total ?? 0, categories), [total, categories]);
@@ -33,7 +49,8 @@ export function InvestPage() {
   const budgets: Record<string, number> = {};
   for (const c of categories) {
     newMoney[c.id] = c.id in overrides ? (overrides[c.id] ?? 0) : (split.amounts[c.id] ?? 0);
-    budgets[c.id] = newMoney[c.id] + (useCash ? Math.max(0, c.cashIls) : 0);
+    // Carried-over cash counts both ways: leftovers add to the budget, an earlier overspend reduces it.
+    budgets[c.id] = Math.max(0, newMoney[c.id] + (useCash ? c.cashIls : 0));
   }
   const sumNew = Object.values(newMoney).reduce((a, b) => a + b, 0);
   const hasCash = categories.some((c) => !isZeroMoney(c.cashIls));
@@ -64,10 +81,49 @@ export function InvestPage() {
         .filter((t) => !(t in prices)),
     ),
   ].sort();
-  const plan =
+  const livePlan =
     started && usdIls !== null && usdIls > 0 && optionsValid && missingPrices.length === 0
       ? planPurchase({ categories, prices, usdIls, fxFeePercent: feePercent ?? 0, budgetsIls: budgets, options })
       : null;
+  const shown: SavedPlan | null =
+    frozen ??
+    (livePlan && usdIls !== null
+      ? { savedAt: '', plan: livePlan, newMoneyIls: newMoney, usdIls, fxFeePercent: feePercent ?? 0 }
+      : null);
+  const plan = shown?.plan ?? null;
+
+  // Keep the latest plan so it survives a reload; forget it once there is nothing to plan.
+  const planKey = livePlan ? JSON.stringify([livePlan.orders, livePlan.categories.map((c) => c.buys)]) : '';
+  useEffect(() => {
+    if (frozen) return;
+    if (!shown || shown.plan.errors.length > 0 || shown.plan.orders.length === 0) {
+      clearDraft();
+      return;
+    }
+    saveDraft({ inputs, saved: { ...shown, savedAt: new Date().toISOString() } });
+    // `inputs` and `shown` are fully described by these keys.
+  }, [frozen, inputsKey, planKey]);
+
+  const afterRecording = (kind: 'purchase' | 'cash') => {
+    setRecording(false);
+    setRecorded(kind);
+    setFrozen(null);
+    clearDraft();
+    setTotal(null);
+    setOverrides({});
+    window.scrollTo?.(0, 0);
+  };
+
+  const keepAsCash = () => {
+    if (!shown) return;
+    const tx = transactionFromPlan(
+      shown.plan,
+      { orders: [], usdIls: shown.usdIls, fxFeePercent: shown.fxFeePercent, date: new Date().toISOString(), newMoneyIls: shown.newMoneyIls },
+      newId(),
+    );
+    actions.recordTransaction(tx);
+    afterRecording('cash');
+  };
 
   if (categories.length === 0) {
     return (
@@ -102,7 +158,9 @@ export function InvestPage() {
 
       {recorded && (
         <div className="banner info" role="status">
-          Purchase recorded. Your holdings and cash were updated.{' '}
+          {recorded === 'purchase'
+            ? 'Purchase recorded. Your holdings and cash were updated.'
+            : "Saved. The money was added to each category's cash and will be included next time."}{' '}
           <button type="button" className="link-button" onClick={() => navigateTo('history')}>
             See it in History
           </button>
@@ -117,7 +175,7 @@ export function InvestPage() {
             value={total}
             onChange={(v) => {
               setTotal(v);
-              setRecorded(false);
+              setRecorded(null);
             }}
             prefix="₪"
             placeholder="10,000"
@@ -154,7 +212,7 @@ export function InvestPage() {
                   amount={newMoney[c.id]}
                   overridden={c.id in overrides}
                   showCash={hasCash}
-                  cashUsed={useCash ? Math.max(0, c.cashIls) : 0}
+                  useCash={useCash}
                   budget={budgets[c.id]}
                   onChange={(v) => setOverrides((o) => ({ ...o, [c.id]: v }))}
                 />
@@ -164,9 +222,7 @@ export function InvestPage() {
               <tr>
                 <td>Total</td>
                 <td className="num">{fmtIls(sumNew)}</td>
-                {hasCash && (
-                  <td className="num hide-sm">{fmtIls(categories.reduce((s, c) => s + (useCash ? Math.max(0, c.cashIls) : 0), 0))}</td>
-                )}
+                {hasCash && <td className="num hide-sm">{useCash ? fmtIls(categories.reduce((s, c) => s + c.cashIls, 0)) : '—'}</td>}
                 <td className="num">{fmtIls(Object.values(budgets).reduce((a, b) => a + b, 0))}</td>
               </tr>
             </tfoot>
@@ -175,7 +231,7 @@ export function InvestPage() {
         {hasCash && (
           <label className="checkbox">
             <input type="checkbox" checked={useCash} onChange={(e) => setUseCash(e.target.checked)} />
-            Also invest cash left over from earlier purchases
+            Include cash left over (or overspent) from earlier purchases
           </label>
         )}
         {!edited && split.warnings.length > 0 && (
@@ -265,29 +321,34 @@ export function InvestPage() {
 
       {!started && <p className="muted center">Enter an amount to see what to buy.</p>}
 
-      {plan && (
+      {frozen && (
+        <div className="banner info" role="status">
+          This is the plan you made {fmtAgo(frozen.savedAt)} ({fmtDateTime(frozen.savedAt)}), with the prices from then. If
+          you already placed these orders, record them below.{' '}
+          <button type="button" className="link-button" onClick={() => setFrozen(null)}>
+            Recalculate with today's prices
+          </button>
+        </div>
+      )}
+
+      {plan && shown && (
         <PlanResultView
           plan={plan}
           categories={categories}
           wholeShares={wholeShares}
           onRecord={() => setRecording(true)}
+          onKeepCash={Object.values(shown.newMoneyIls).some((v) => v > 0) ? keepAsCash : undefined}
         />
       )}
 
-      {recording && plan && usdIls !== null && (
+      {recording && shown && (
         <RecordPurchaseModal
-          plan={plan}
-          newMoneyIls={newMoney}
-          usdIls={usdIls}
-          fxFeePercent={feePercent ?? 0}
+          plan={shown.plan}
+          newMoneyIls={shown.newMoneyIls}
+          usdIls={shown.usdIls}
+          fxFeePercent={shown.fxFeePercent}
           onClose={() => setRecording(false)}
-          onRecorded={() => {
-            setRecording(false);
-            setRecorded(true);
-            setTotal(null);
-            setOverrides({});
-            window.scrollTo?.(0, 0);
-          }}
+          onRecorded={() => afterRecording('purchase')}
         />
       )}
     </>
@@ -299,7 +360,7 @@ function SplitRow({
   amount,
   overridden,
   showCash,
-  cashUsed,
+  useCash,
   budget,
   onChange,
 }: {
@@ -307,7 +368,7 @@ function SplitRow({
   amount: number;
   overridden: boolean;
   showCash: boolean;
-  cashUsed: number;
+  useCash: boolean;
   budget: number;
   onChange: (v: number | null) => void;
 }) {
@@ -326,7 +387,7 @@ function SplitRow({
       </td>
       {showCash && (
         <td className={`num hide-sm${category.cashIls < 0 && !isZeroMoney(category.cashIls) ? ' bad-text' : ''}`}>
-          {isZeroMoney(category.cashIls) ? '—' : cashUsed > 0 ? fmtIls(cashUsed) : fmtIls(category.cashIls)}
+          {isZeroMoney(category.cashIls) ? '—' : useCash ? fmtIls(category.cashIls) : <span className="muted">not used</span>}
         </td>
       )}
       <td className="num">

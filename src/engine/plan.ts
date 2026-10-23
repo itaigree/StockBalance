@@ -95,34 +95,53 @@ export function planPurchase(input: PlanInput): PlanResult {
   const price = (t: string) => prices[t];
   const wholeShares = options.wholeShares;
 
-  // Tickers that may be bought; order limits remove tickers from this set.
-  const allowed = new Set<string>();
-  for (const c of cats) if (c.budgetUsd > 0) for (const t of c.weights.keys()) allowed.add(t);
-  const skipped = new Map<string, number>();
+  // Tickers that may be bought. Order limits drop tickers for one round; `banned` drops them for good.
+  const candidates = new Set<string>();
+  for (const c of cats) if (c.budgetUsd > 0) for (const t of c.weights.keys()) candidates.add(t);
+  const banned = new Set<string>();
+  /** Tickers left out because of the order limits (for the warning). */
+  let skipped = new Set<string>();
 
   let shares: PerCat = cats.map(() => new Map());
   let orderShares = new Map<string, number>();
   for (let outer = 0; outer <= MAX_ITERATIONS; outer++) {
     if (outer === MAX_ITERATIONS) throw new Error('planPurchase did not converge');
-    const ideal = applyOrderLimits(cats, allowed, options, skipped);
+    const allowed = new Set([...candidates].filter((t) => !banned.has(t)));
+    const dropped = new Set<string>();
+    const ideal = applyOrderLimits(cats, allowed, options, dropped, price);
     ({ shares, orderShares } = roundOrders(cats, ideal, price, wholeShares));
     if (wholeShares) topUp(cats, allowed, shares, orderShares, price, options);
 
-    // Rounding can leave an order below the minimum: drop the smallest such ticker and start over.
+    // Rounding can leave an order below the minimum: ban the smallest such ticker and start over.
+    // (With fractional shares, flooring to 1e-6 of a share may shave off a fraction of a cent.)
     const tooSmall = [...orderShares]
       .map(([t, n]) => ({ t, cost: n * price(t) }))
-      .filter(({ cost }) => cost < options.minOrderUsd - EPS)
+      .filter(({ t, cost }) => cost < options.minOrderUsd - EPS - (wholeShares ? 0 : price(t) * 1e-6))
       .sort((a, b) => a.cost - b.cost || a.t.localeCompare(b.t));
-    if (tooSmall.length === 0) break;
-    skipped.set(tooSmall[0].t, tooSmall[0].cost);
-    allowed.delete(tooSmall[0].t);
+    if (tooSmall.length > 0) {
+      banned.add(tooSmall[0].t);
+      skipped.add(tooSmall[0].t);
+      continue;
+    }
+
+    // A ticker that kept its place under the limits but couldn't buy even one share wastes that
+    // place: ban it and give the dropped tickers another chance.
+    if (wholeShares && dropped.size > 0) {
+      const wasted = [...totalsByTicker(ideal)].filter(([t, x]) => x > EPS && !orderShares.has(t)).map(([t]) => t);
+      if (wasted.length > 0) {
+        for (const t of wasted) banned.add(t);
+        continue;
+      }
+    }
+    skipped = new Set([...skipped, ...dropped]);
+    break;
   }
 
   const orders: PlannedOrder[] = [...orderShares]
     .map(([ticker, n]) => ({ ticker, shares: n, priceUsd: price(ticker), costUsd: n * price(ticker) }))
     .sort((a, b) => b.costUsd - a.costUsd || a.ticker.localeCompare(b.ticker));
 
-  const skippedNow = [...skipped.keys()].filter((t) => !orderShares.has(t)).sort();
+  const skippedNow = [...skipped].filter((t) => !orderShares.has(t)).sort();
   if (skippedNow.length > 0) {
     warnings.push(
       `To keep your orders few and not too small, these stocks were skipped this time: ${skippedNow.join(', ')}.`,
@@ -200,9 +219,18 @@ function totalsByTicker(perCat: PerCat): Map<string, number> {
 
 /**
  * Step 2: recompute the ideal buys, removing the smallest ticker while there are more tickers than
- * `maxTickers` or some ticker's combined order is below `minOrderUsd`. Mutates `allowed`.
+ * `maxTickers` or some ticker's combined order is below `minOrderUsd`. Mutates `allowed`; removed
+ * tickers are added to `dropped`. With whole shares, a ticker whose single share already meets the
+ * minimum is not removed here: its order is either 0 or at least one share, checked after rounding.
  */
-function applyOrderLimits(cats: Cat[], allowed: Set<string>, options: PlanOptions, skipped: Map<string, number>): PerCat {
+function applyOrderLimits(
+  cats: Cat[],
+  allowed: Set<string>,
+  options: PlanOptions,
+  dropped: Set<string>,
+  price: (t: string) => number,
+): PerCat {
+  const min = options.minOrderUsd;
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const ideal = idealBuys(cats, allowed);
     const active = [...totalsByTicker(ideal)]
@@ -210,9 +238,11 @@ function applyOrderLimits(cats: Cat[], allowed: Set<string>, options: PlanOption
       .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
     let victim: [string, number] | undefined;
     if (options.maxTickers !== null && active.length > options.maxTickers) victim = active[0];
-    else if (options.minOrderUsd > 0) victim = active.find(([, x]) => x < options.minOrderUsd - EPS);
+    else if (min > 0) {
+      victim = active.find(([t, x]) => x < min - EPS && (!options.wholeShares || price(t) < min - EPS));
+    }
     if (!victim) return ideal;
-    skipped.set(victim[0], victim[1]);
+    dropped.add(victim[0]);
     allowed.delete(victim[0]);
   }
   throw new Error('order limits did not converge');
@@ -273,12 +303,17 @@ function topUp(
       if (current === 0 && options.maxTickers !== null && orderShares.size >= options.maxTickers) continue;
       if ((current + 1) * p < options.minOrderUsd - EPS) continue;
 
-      const payers = cats.map((_, i) => i).filter((i) => cats[i].weights.has(t) && leftover[i] > EPS);
-      const caps = payers.map((i) => leftover[i]);
+      // Only categories still below their target for t pay, and each at most 2 × its gap, so no
+      // category ends further from its target than before (its own a·(a − 2·gap) stays ≤ 0).
+      const gapOf = (i: number) => cats[i].weights.get(t)! * cats[i].total - valueNow(i, t);
+      const payers = cats
+        .map((_, i) => i)
+        .filter((i) => cats[i].weights.has(t) && leftover[i] > EPS && gapOf(i) > EPS);
+      const gaps = payers.map(gapOf);
+      const caps = payers.map((i, k) => Math.min(leftover[i], 2 * gaps[k]));
       if (sum(caps) < p - EPS) continue;
 
-      const gaps = payers.map((i) => cats[i].weights.get(t)! * cats[i].total - valueNow(i, t));
-      const pay = splitCost(p, gaps.map((g) => Math.max(0, g)), caps);
+      const pay = splitCost(p, gaps, caps);
       // Change in Σ (v − g)² / w for each payer: a·(a − 2·gap) / w.
       const delta = sum(payers.map((i, k) => (pay[k] * (pay[k] - 2 * gaps[k])) / cats[i].weights.get(t)!));
       if (delta < -EPS && (!best || delta < best.delta)) best = { t, payers, pay, delta };

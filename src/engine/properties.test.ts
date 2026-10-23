@@ -104,6 +104,22 @@ describe('planPurchase invariants', () => {
     );
   });
 
+  it('never leaves any single category further from its targets than buying nothing', () => {
+    fc.assert(
+      fc.property(inputArb, (input) => {
+        const plan = planPurchase(input);
+        const buys = buysOf(plan);
+        for (const c of input.categories) {
+          const single = { ...input, categories: [c] };
+          const before = balanceObjective(single, {});
+          const after = balanceObjective(single, { [c.id]: buys[c.id] ?? {} });
+          expect(after).toBeLessThanOrEqual(before * (1 + 1e-9) + 1e-6);
+        }
+      }),
+      RUNS,
+    );
+  });
+
   it('invests the whole budget with fractional shares and no limits', () => {
     fc.assert(
       fc.property(inputArb, (raw) => {

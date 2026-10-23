@@ -58,14 +58,21 @@ function TransactionCard({ tx, byId, onUndo }: { tx: Transaction; byId: Map<stri
         <div>
           <h2>{fmtDate(tx.date)}</h2>
           <div className="muted small-text">
-            {fmtUsd(totalUsd)} · {fmtIls(totalIls)} at {fmtRate(tx.usdIls)}
-            {tx.fxFeePercent > 0 && ` + ${tx.fxFeePercent}% fee`}
+            {tx.orders.length === 0 ? (
+              `${fmtIls(tx.cash.reduce((s, c) => s + c.newMoneyIls, 0))} kept as cash`
+            ) : (
+              <>
+                {fmtUsd(totalUsd)} · {fmtIls(totalIls)} at {fmtRate(tx.usdIls)}
+                {tx.fxFeePercent > 0 && ` + ${tx.fxFeePercent}% fee`}
+              </>
+            )}
           </div>
         </div>
         <button type="button" className="secondary small" onClick={onUndo}>
           Undo
         </button>
       </div>
+      {tx.orders.length === 0 && <p className="muted">Nothing was bought; the money was added to the categories' cash.</p>}
       <ul className="tx-orders">
         {tx.orders.map((o) => (
           <li key={o.ticker}>

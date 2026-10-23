@@ -73,6 +73,11 @@ describe('parseAppData', () => {
     expect(bad([{ ...minimalCategory, name: '  ' }])).toMatchObject({ ok: false, error: expect.stringContaining('name is empty') });
     expect(bad([{ ...minimalCategory, holdings: { A: Infinity } }]).ok).toBe(false);
     expect(bad([minimalCategory, minimalCategory])).toMatchObject({ ok: false, error: expect.stringContaining('used twice') });
+    const tx = { id: 'dup', date: 'd', usdIls: 3.7, fxFeePercent: 0, orders: [], allocations: [], cash: [] };
+    expect(parseAppData({ version: 1, transactions: [tx, tx] })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('transactions[1].id'),
+    });
     expect(bad([{ ...minimalCategory, contribution: { kind: 'fixed', amountIls: -1 } }]).ok).toBe(false);
   });
 

@@ -10,10 +10,12 @@ interface Props {
   categories: Category[];
   wholeShares: boolean;
   onRecord: () => void;
+  /** When nothing can be bought: record the new money as cash in its categories. */
+  onKeepCash?: () => void;
 }
 
 /** The answer to "what should I buy": headline, consolidated orders, and per-category details. */
-export function PlanResultView({ plan, categories, wholeShares, onRecord }: Props) {
+export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeepCash }: Props) {
   const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const funded = plan.categories.filter((c) => c.budgetIls > 0);
@@ -82,7 +84,17 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord }: Prop
                 </div>
               </>
             ) : (
-              <p className="muted">Nothing to buy with these amounts. The money stays as cash in its categories.</p>
+              <>
+                <p className="muted">
+                  Nothing to buy with these amounts this time. Keep the money as cash in its categories, and it will be
+                  added to what you invest next time.
+                </p>
+                {onKeepCash && (
+                  <button type="button" onClick={onKeepCash}>
+                    Keep the money as cash for next time
+                  </button>
+                )}
+              </>
             )}
           </section>
 

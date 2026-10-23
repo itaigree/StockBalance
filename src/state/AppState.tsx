@@ -61,7 +61,7 @@ export function reducer(state: AppData, action: Action): AppData {
       return {
         ...state,
         categories: revertTransaction(state.categories, tx),
-        transactions: state.transactions.filter((t) => t.id !== action.id),
+        transactions: state.transactions.filter((t) => t !== tx),
       };
     }
   }

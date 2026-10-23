@@ -45,12 +45,19 @@ them from a browser page.
 The USD/ILS rate comes from Yahoo, then Frankfurter (ECB rates), then open.er-api.com. You can
 always type any price or the rate yourself.
 
-### Hosting it (optional)
+### Using it on your phone (GitHub Pages)
 
-`npm run build` creates a static site in `dist/`. You can host it on any static host, such as
-GitHub Pages or Netlify, and open it from your phone too. Your data stays in each browser where
-you use the app. Use backup files to move data between devices. On a hosted copy the Yahoo
-forwarding doesn't exist, so use a Finnhub key or manual prices.
+Every push to `main` builds the app and publishes it to
+`https://itaigree.github.io/StockBalance/` (see `.github/workflows/deploy.yml`). One-time setup:
+in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**. Free GitHub Pages
+needs a public repository.
+
+On the phone, open the address and use **Add to Home Screen**. On the hosted copy the Yahoo
+forwarding doesn't exist, so get a free key at [finnhub.io](https://finnhub.io/register) and paste
+it in **Settings → Prices** (or type prices yourself).
+
+Each browser keeps its own data: the phone and the computer don't share it. To move data, use
+**Settings → Download backup** on one and **Restore from backup** on the other.
 
 ## How the calculation works
 

@@ -11,17 +11,20 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 
   suffix?: string;
 };
 
+const format = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 10 });
+
 /**
  * Text input for numbers that lets the user type freely ("1,000", "0.", "") and reports the parsed
- * value. External value changes are reflected unless they match what is already typed.
+ * value. External value changes are reflected unless they match what is already typed; the number
+ * is shown with thousands separators when the field isn't being edited.
  */
-export function NumberField({ value, onChange, prefix, suffix, className, ...rest }: Props) {
-  const [text, setText] = useState(() => (value === null ? '' : String(value)));
+export function NumberField({ value, onChange, prefix, suffix, className, onBlur, ...rest }: Props) {
+  const [text, setText] = useState(() => (value === null ? '' : format(value)));
   const lastEmitted = useRef<number | null>(value);
 
   useEffect(() => {
     if (value !== lastEmitted.current) {
-      setText(value === null ? '' : String(value));
+      setText(value === null ? '' : format(value));
       lastEmitted.current = value;
     }
   }, [value]);
@@ -44,6 +47,11 @@ export function NumberField({ value, onChange, prefix, suffix, className, ...res
           const n = parseNumber(e.target.value);
           lastEmitted.current = n;
           onChange(n);
+        }}
+        onBlur={(e) => {
+          const n = parseNumber(text);
+          if (n !== null) setText(format(n));
+          onBlur?.(e);
         }}
       />
       {suffix && <span className="affix">{suffix}</span>}

@@ -77,12 +77,3 @@
   flex-wrap: wrap;
   gap: 0.25rem 0.5rem;
 }
-.owner-chip {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-  font-size: 0.85rem;
-  padding: 0.05rem 0.5rem;
-  border-radius: 999px;
-  background: var(--surface-2);
-}

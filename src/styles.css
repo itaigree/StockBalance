@@ -427,6 +427,9 @@ label {
   overflow: hidden;
   max-width: 100%;
 }
+.field > .number-field {
+  align-self: flex-start;
+}
 .number-field:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -602,6 +605,16 @@ label {
 }
 
 /* ---------- Helpers ---------- */
+
+.owner-chip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
 
 .error-text {
   color: var(--bad);

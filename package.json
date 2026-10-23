@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Track stock holdings by category and calculate what to buy to keep each category balanced.",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "start": "vite --open",
     "dev": "vite",

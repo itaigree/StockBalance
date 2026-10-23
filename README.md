@@ -22,7 +22,7 @@ The app only suggests purchases. It never suggests selling.
 
 ## Running it
 
-You need [Node.js](https://nodejs.org) 20 or newer.
+You need [Node.js](https://nodejs.org) 22.12 or newer (the current LTS version is fine).
 
 ```bash
 npm install
@@ -76,7 +76,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the details. In short:
 ```bash
 npm run dev         # dev server
 npm test            # unit tests (Vitest)
-npm run e2e         # end-to-end tests (Playwright)
+npm run e2e         # end-to-end tests (Playwright; run `npx playwright install chromium` once first)
 npm run check       # typecheck + unit tests + production build
 ```
 

@@ -75,7 +75,10 @@ with weight > 0 and a valid price): find level `λ ≥ 0` with
 
 and buy `x_ct = max(0, w_ct · λ − V_ct)` dollars of each. (Sort by `V_ct / w_ct`, add tickers one
 by one; standard.) `w_ct` stays normalised over the category's *full* target set, so if a ticker is
-not allowed, its money flows to the allowed ones. If `S` is empty, the budget stays uninvested.
+not allowed, its money flows to the allowed ones — but the level is capped at `λ ≤ T_c`, so no ticker
+is ever pushed above its full target value `w_ct · T_c`; money that can't be placed that way stays
+uninvested (cash). With all targets allowed the cap is never binding. If `S` is empty, the budget
+stays uninvested.
 
 ### Step 2 — merge across categories and apply the "fewer transactions" constraints
 
@@ -122,6 +125,8 @@ When `wholeShares` is false, orders are `X_t` dollars (`shares = X_t / p_t`), no
 
 Invariants (tested with property-based tests):
 - Every category spends ≤ its budget (+1e-6 tolerance); no negative buys.
+- The plan never makes the balance objective `E` worse than buying nothing (no stock is pushed above
+  its target value by the ideal buys, and extra whole shares are only bought when they lower `E`).
 - Σ_c q_ct = shares_t for every order; whole shares when `wholeShares`.
 - Number of orders ≤ `maxTickers` (when set and satisfiable); every order ≥ `minOrderUsd`.
 - Only target tickers with weight > 0 are bought by a category.

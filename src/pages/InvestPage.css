@@ -1,0 +1,63 @@
+.amount-field h2 {
+  margin-bottom: 0.5rem;
+}
+.number-field.big input[type='text'] {
+  font-size: 1.6rem;
+  font-weight: 700;
+  width: 12rem;
+  padding: 0.45rem 0.7rem;
+}
+.number-field.big .affix {
+  font-size: 1.3rem;
+}
+.split-table td {
+  vertical-align: middle;
+}
+.row.nowrap {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.split-table + .checkbox {
+  margin-top: 0.75rem;
+}
+.options summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+.options summary h2 {
+  display: inline;
+  margin: 0;
+}
+.options[open] summary {
+  margin-bottom: 1rem;
+}
+.options-grid {
+  display: grid;
+  gap: 1rem 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+.missing-prices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.missing-prices .ticker {
+  min-width: 4rem;
+}
+.center {
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .split-table .number-field input[type='text'] {
+    width: 5.5rem;
+  }
+  .number-field.big input[type='text'] {
+    width: 9rem;
+  }
+}

@@ -158,4 +158,23 @@ describe('InvestPage', () => {
     const totalRow = within(split).getAllByRole('row').at(-1)!;
     expect(within(totalRow).getAllByRole('cell').at(-1)!.textContent).toBe('₪10,000.00');
   });
+
+  it('gives one category all the rest of the total', async () => {
+    const data = sample();
+    // Like imported categories: no default rule, amounts are typed in.
+    data.categories = data.categories.map((c) => ({ ...c, contribution: { kind: 'none' as const }, cashIls: 0 }));
+    const { user } = renderApp('invest', data);
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    await user.type(screen.getByLabelText('New money for Pension'), '1000');
+    await user.click(screen.getByRole('button', { name: 'All the rest to Investments' }));
+    expect(screen.getByLabelText('New money for Investments')).toHaveTextContent('₪9,000.00');
+    // Changing another amount updates the rest.
+    await user.type(screen.getByLabelText('New money for Kids'), '1000');
+    expect(screen.getByLabelText('New money for Investments')).toHaveTextContent('₪8,000.00');
+    expect(screen.queryByText(/isn't assigned/)).not.toBeInTheDocument();
+    // Turning it off keeps the amount as a typed one.
+    await user.click(screen.getByRole('button', { name: 'All the rest to Investments' }));
+    expect(screen.getByLabelText('New money for Investments')).toHaveValue('8,000');
+  });
 });
+

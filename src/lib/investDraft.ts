@@ -6,6 +6,8 @@ const KEY = 'stockbalance:invest-draft';
 export interface InvestInputs {
   total: number | null;
   overrides: Record<string, number | null>;
+  /** Category that gets whatever is left of the total (optional: older drafts don't have it). */
+  restId?: string | null;
   useCash: boolean;
   wholeShares: boolean;
   minOrder: number | null;

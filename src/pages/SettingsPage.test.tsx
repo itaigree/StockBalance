@@ -1,6 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { serializeBackup } from '../data/backup';
+import { YAHOO_CSV } from '../data/importCsv.fixture';
 import { renderApp, sample, savedData } from '../test-utils';
 
 const download = vi.hoisted(() => vi.fn());
@@ -57,5 +58,21 @@ describe('SettingsPage', () => {
     await user.type(screen.getByLabelText('Type DELETE to confirm'), 'DELETE');
     await user.click(confirm);
     await waitFor(() => expect(savedData().categories).toEqual([]));
+  });
+});
+
+describe('import holdings', () => {
+  it('previews and imports a Yahoo Finance export', async () => {
+    const { user } = renderApp('settings', sample());
+    await user.upload(screen.getByLabelText('Yahoo Finance CSV file to import'), new File([YAHOO_CSV], 'p.csv', { type: 'text/csv' }));
+    expect(await screen.findByText('replaces shares')).toBeInTheDocument(); // Pension exists in the sample
+    expect(screen.getByText('new category')).toBeInTheDocument(); // My Portfolio
+    await user.click(screen.getByRole('button', { name: 'Import' }));
+    await waitFor(() => {
+      const cats = savedData().categories;
+      expect(cats.find((c) => c.name === 'Pension')!.holdings).toEqual({ VTI: 5 });
+      expect(cats.find((c) => c.name === 'Pension')!.targets.length).toBeGreaterThan(0);
+      expect(cats.find((c) => c.name === 'My Portfolio')!.holdings).toEqual({ 'MXWO.L': 3, VT: 12.5 });
+    });
   });
 });

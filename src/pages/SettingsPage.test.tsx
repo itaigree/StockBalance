@@ -62,17 +62,33 @@ describe('SettingsPage', () => {
 });
 
 describe('import holdings', () => {
-  it('previews and imports a Yahoo Finance export', async () => {
+  it('lets each portfolio go to an existing or a new category', async () => {
     const { user } = renderApp('settings', sample());
     await user.upload(screen.getByLabelText('Yahoo Finance CSV file to import'), new File([YAHOO_CSV], 'p.csv', { type: 'text/csv' }));
-    expect(await screen.findByText('replaces shares')).toBeInTheDocument(); // Pension exists in the sample
-    expect(screen.getByText('new category')).toBeInTheDocument(); // My Portfolio
+    // Defaults: same name → that category; otherwise a new one named after the portfolio.
+    const pensionSelect = await screen.findByLabelText('Put Pension into');
+    expect(pensionSelect).toHaveValue('sample-pension');
+    expect(screen.getByLabelText('Put My Portfolio into')).toHaveValue('__new');
+    expect(screen.getByLabelText('Name of the new category for My Portfolio')).toHaveValue('My Portfolio');
+
+    // Send "My Portfolio" into the existing Investments category instead.
+    await user.selectOptions(screen.getByLabelText('Put My Portfolio into'), 'sample-investments');
+    // And the pension portfolio into a new category, which needs a free name.
+    await user.selectOptions(pensionSelect, '__new');
+    expect(screen.getByText('Give the new category a name.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+    await user.type(screen.getByLabelText('Name of the new category for Pension'), 'Kids');
+    expect(screen.getByText(/A category with this name exists/)).toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Name of the new category for Pension'));
+    await user.type(screen.getByLabelText('Name of the new category for Pension'), 'Old pension');
     await user.click(screen.getByRole('button', { name: 'Import' }));
+
     await waitFor(() => {
       const cats = savedData().categories;
-      expect(cats.find((c) => c.name === 'Pension')!.holdings).toEqual({ VTI: 5 });
-      expect(cats.find((c) => c.name === 'Pension')!.targets.length).toBeGreaterThan(0);
-      expect(cats.find((c) => c.name === 'My Portfolio')!.holdings).toEqual({ 'MXWO.L': 3, VT: 12.5 });
+      expect(cats.find((c) => c.name === 'Investments')!.holdings).toEqual({ 'MXWO.L': 3, VT: 12.5 });
+      expect(cats.find((c) => c.name === 'Investments')!.targets.length).toBeGreaterThan(0);
+      expect(cats.find((c) => c.name === 'Old pension')!.holdings).toEqual({ VTI: 5 });
+      expect(cats.find((c) => c.name === 'Pension')!.holdings).toEqual(sample().categories[0].holdings);
     });
   });
 });

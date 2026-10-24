@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { applyImport, parseYahooPortfolioCsv, type ImportedPortfolio } from '../data/importCsv';
+import { applyImport, defaultTarget, parseYahooPortfolioCsv, type ImportedPortfolio, type ImportTarget } from '../data/importCsv';
 import { useApp } from '../state/AppState';
 import { fmtShares } from '../lib/format';
 import { Modal } from './Modal';
@@ -8,10 +8,24 @@ import { Modal } from './Modal';
 export function ImportHoldings({ className = 'secondary', onDone }: { className?: string; onDone?: (message: string) => void }) {
   const { data, actions } = useApp();
   const input = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<{ portfolios: ImportedPortfolio[]; warnings: string[] } | null>(null);
+  const [preview, setPreview] = useState<{
+    portfolios: ImportedPortfolio[];
+    warnings: string[];
+  } | null>(null);
+  const [targets, setTargets] = useState<ImportTarget[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const exists = (name: string) => data.categories.some((c) => c.name.trim().toLowerCase() === name.toLowerCase());
+  const setTarget = (i: number, t: ImportTarget) => setTargets((ts) => ts.map((x, j) => (j === i ? t : x)));
+  const nameError = (t: ImportTarget): string | null => {
+    if (t.kind !== 'new') return null;
+    const name = t.name.trim();
+    if (!name) return 'Give the new category a name.';
+    if (data.categories.some((c) => c.name.trim().toLowerCase() === name.toLowerCase())) {
+      return 'A category with this name exists; choose it from the list instead.';
+    }
+    return null;
+  };
+  const valid = targets.every((t) => !nameError(t)) && targets.some((t) => t.kind !== 'skip');
 
   return (
     <>
@@ -32,6 +46,7 @@ export function ImportHoldings({ className = 'secondary', onDone }: { className?
           if (result.ok) {
             setError(null);
             setPreview(result);
+            setTargets(result.portfolios.map((p) => defaultTarget(data.categories, p)));
           } else setError(result.error);
         }}
       />
@@ -53,8 +68,12 @@ export function ImportHoldings({ className = 'secondary', onDone }: { className?
               </button>
               <button
                 type="button"
+                disabled={!valid}
                 onClick={() => {
-                  actions.replaceData({ ...data, categories: applyImport(data.categories, preview.portfolios) });
+                  actions.replaceData({
+                    ...data,
+                    categories: applyImport(data.categories, preview.portfolios, targets),
+                  });
                   setPreview(null);
                   onDone?.('Holdings imported. Next, set each category’s target percentages on the Categories page.');
                 }}
@@ -65,32 +84,81 @@ export function ImportHoldings({ className = 'secondary', onDone }: { className?
           }
         >
           <p className="muted">
-            Each portfolio in the file becomes a category. A category with the same name keeps its targets and
-            settings, and only its shares are replaced. You can rename categories afterwards.
+            Choose where each portfolio in the file goes. Putting it into an existing category replaces that category's shares and
+            keeps its targets and settings. Portfolios put into the same category are added together.
           </p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Portfolio</th>
-                  <th>What happens</th>
-                  <th>Shares</th>
+                  <th>Put into</th>
                 </tr>
               </thead>
               <tbody>
-                {preview.portfolios.map((p) => (
-                  <tr key={p.name}>
-                    <td>
-                      <strong>{p.name}</strong>
-                    </td>
-                    <td>{exists(p.name) ? <span className="badge warn">replaces shares</span> : <span className="badge good">new category</span>}</td>
-                    <td>
-                      {Object.entries(p.holdings)
-                        .map(([t, n]) => `${fmtShares(n)} ${t}`)
-                        .join(', ')}
-                    </td>
-                  </tr>
-                ))}
+                {preview.portfolios.map((p, i) => {
+                  const t = targets[i] ?? { kind: 'skip' };
+                  const err = nameError(t);
+                  return (
+                    <tr key={p.name}>
+                      <td>
+                        <strong>{p.name}</strong>
+                        <div className="muted small-text">
+                          {Object.entries(p.holdings)
+                            .map(([t, n]) => `${fmtShares(n)} ${t}`)
+                            .join(', ')}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="import-target">
+                          <select
+                            aria-label={`Put ${p.name} into`}
+                            value={t.kind === 'existing' ? t.categoryId : t.kind === 'new' ? '__new' : '__skip'}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setTarget(
+                                i,
+                                v === '__new'
+                                  ? {
+                                      kind: 'new',
+                                      name: data.categories.some((c) => c.name.trim().toLowerCase() === p.name.toLowerCase())
+                                        ? ''
+                                        : p.name,
+                                    }
+                                  : v === '__skip'
+                                    ? { kind: 'skip' }
+                                    : { kind: 'existing', categoryId: v },
+                              );
+                            }}
+                          >
+                            {data.categories.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name} (replace its shares)
+                              </option>
+                            ))}
+                            <option value="__new">New category…</option>
+                            <option value="__skip">Don't import</option>
+                          </select>
+                          {t.kind === 'new' && (
+                            <input
+                              type="text"
+                              value={t.name}
+                              placeholder="Name of the new category"
+                              aria-label={`Name of the new category for ${p.name}`}
+                              onChange={(e) =>
+                                setTarget(i, {
+                                  kind: 'new',
+                                  name: e.target.value,
+                                })
+                              }
+                            />
+                          )}
+                          {err && <span className="error-text">{err}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -33,3 +33,6 @@
   color: var(--bad);
   border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
 }
+.forwarder-field {
+  margin-top: 1rem;
+}

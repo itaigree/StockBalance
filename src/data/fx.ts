@@ -13,12 +13,12 @@ interface Source {
   read: (json: unknown) => unknown;
 }
 
-const YAHOO: Source = {
+const yahoo = (proxyUrl: string): Source => ({
   name: 'Yahoo',
   source: 'yahoo',
-  url: yahooChartUrl('ILS=X'),
+  url: yahooChartUrl('ILS=X', proxyUrl),
   read: (json) => pick(json, 'chart', 'result', 0, 'meta', 'regularMarketPrice'),
-};
+});
 const FRANKFURTER: Source = {
   name: 'Frankfurter',
   source: 'frankfurter',
@@ -48,7 +48,7 @@ export async function fetchUsdIls(
   const sources =
     settings.priceProvider === 'finnhub' || settings.priceProvider === 'manual'
       ? [FRANKFURTER, OPEN_ER_API]
-      : [YAHOO, FRANKFURTER, OPEN_ER_API];
+      : [yahoo(settings.yahooProxyUrl), FRANKFURTER, OPEN_ER_API];
 
   for (const s of sources) {
     const r = await getJson(fetchImpl, s.url, timeoutMs);

@@ -4,6 +4,7 @@ import type { AppData, Category, PriceQuote, Settings } from '../types';
 export const DEFAULT_SETTINGS: Settings = {
   priceProvider: 'auto',
   finnhubApiKey: '',
+  yahooProxyUrl: '',
   fxFeePercent: 0,
   wholeShares: true,
   minOrderUsd: 0,
@@ -63,6 +64,7 @@ const fxQuote = z.object({
 const settings = z.object({
   priceProvider: z.enum(['auto', 'yahoo', 'finnhub', 'manual']).catch(DEFAULT_SETTINGS.priceProvider),
   finnhubApiKey: z.string().trim().catch(DEFAULT_SETTINGS.finnhubApiKey),
+  yahooProxyUrl: z.string().trim().catch(DEFAULT_SETTINGS.yahooProxyUrl),
   fxFeePercent: z.number().min(0).max(100).catch(DEFAULT_SETTINGS.fxFeePercent),
   wholeShares: z.boolean().catch(DEFAULT_SETTINGS.wholeShares),
   minOrderUsd: z.number().min(0).catch(DEFAULT_SETTINGS.minOrderUsd),

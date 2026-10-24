@@ -23,6 +23,8 @@ export function InvestPage() {
   const [total, setTotal] = useState<number | null>(restored?.total ?? null);
   /** Amounts the user typed for this purchase (category id → ILS). */
   const [overrides, setOverrides] = useState<Record<string, number | null>>(restored?.overrides ?? {});
+  /** The category that gets "all the rest": the total minus every other category's amount. */
+  const [restId, setRestId] = useState<string | null>(restored?.restId ?? null);
   const [useCash, setUseCash] = useState(restored?.useCash ?? true);
   const [wholeShares, setWholeShares] = useState(restored?.wholeShares ?? settings.wholeShares);
   const [minOrder, setMinOrder] = useState<number | null>(restored ? restored.minOrder : settings.minOrderUsd);
@@ -34,7 +36,7 @@ export function InvestPage() {
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
 
-  const inputs: InvestInputs = { total, overrides, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride };
+  const inputs: InvestInputs = { total, overrides, restId, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride };
   const inputsKey = JSON.stringify(inputs);
   const lastInputsKey = useRef(inputsKey);
   useEffect(() => {
@@ -49,12 +51,19 @@ export function InvestPage() {
   const budgets: Record<string, number> = {};
   for (const c of categories) {
     newMoney[c.id] = c.id in overrides ? (overrides[c.id] ?? 0) : (split.amounts[c.id] ?? 0);
+  }
+  const rest = restId !== null && categories.some((c) => c.id === restId) ? restId : null;
+  if (rest !== null) {
+    const others = categories.reduce((s, c) => (c.id === rest ? s : s + newMoney[c.id]), 0);
+    newMoney[rest] = Math.max(0, Math.round(((total ?? 0) - others) * 100) / 100);
+  }
+  for (const c of categories) {
     // Carried-over cash counts both ways: leftovers add to the budget, an earlier overspend reduces it.
     budgets[c.id] = Math.max(0, newMoney[c.id] + (useCash ? c.cashIls : 0));
   }
   const sumNew = Object.values(newMoney).reduce((a, b) => a + b, 0);
   const hasCash = categories.some((c) => !isZeroMoney(c.cashIls));
-  const edited = Object.keys(overrides).length > 0;
+  const edited = Object.keys(overrides).length > 0 || rest !== null;
   const started = (total ?? 0) > 0 || Object.values(overrides).some((v) => (v ?? 0) > 0);
 
   const options: PlanOptions = {
@@ -111,6 +120,7 @@ export function InvestPage() {
     clearDraft();
     setTotal(null);
     setOverrides({});
+    setRestId(null);
     window.scrollTo?.(0, 0);
   };
 
@@ -189,7 +199,14 @@ export function InvestPage() {
         <div className="card-header">
           <h2 id="split-title">Split between categories</h2>
           {edited && (
-            <button type="button" className="secondary small" onClick={() => setOverrides({})}>
+            <button
+              type="button"
+              className="secondary small"
+              onClick={() => {
+                setOverrides({});
+                setRestId(null);
+              }}
+            >
               Reset to rules
             </button>
           )}
@@ -211,10 +228,25 @@ export function InvestPage() {
                   category={c}
                   amount={newMoney[c.id]}
                   overridden={c.id in overrides}
+                  isRest={c.id === rest}
                   showCash={hasCash}
                   useCash={useCash}
                   budget={budgets[c.id]}
                   onChange={(v) => setOverrides((o) => ({ ...o, [c.id]: v }))}
+                  onToggleRest={() => {
+                    if (c.id === rest) {
+                      // Keep the amount it had, as a normal typed amount.
+                      setOverrides((o) => ({ ...o, [c.id]: newMoney[c.id] }));
+                      setRestId(null);
+                    } else {
+                      setOverrides((o) => {
+                        const next = { ...o };
+                        delete next[c.id];
+                        return next;
+                      });
+                      setRestId(c.id);
+                    }
+                  }}
                 />
               ))}
             </tbody>
@@ -359,18 +391,22 @@ function SplitRow({
   category,
   amount,
   overridden,
+  isRest,
   showCash,
   useCash,
   budget,
   onChange,
+  onToggleRest,
 }: {
   category: Category;
   amount: number;
   overridden: boolean;
+  isRest: boolean;
   showCash: boolean;
   useCash: boolean;
   budget: number;
   onChange: (v: number | null) => void;
+  onToggleRest: () => void;
 }) {
   return (
     <tr>
@@ -378,12 +414,31 @@ function SplitRow({
         <div className="row nowrap">
           <span className="dot" style={{ background: category.color }} />
           <strong>{category.name}</strong>
-          {overridden && <span className="badge">edited</span>}
+          {overridden && !isRest && <span className="badge">edited</span>}
+          {isRest && <span className="badge good">all the rest</span>}
         </div>
-        <div className="muted small-text">{describeRule(category.contribution)}</div>
+        <div className="muted small-text hide-sm">{describeRule(category.contribution)}</div>
       </td>
       <td className="num">
-        <NumberField value={amount} onChange={onChange} prefix="₪" aria-label={`New money for ${category.name}`} />
+        <div className="amount-cell">
+          {isRest ? (
+            <span className="rest-amount" aria-label={`New money for ${category.name}`}>
+              {fmtIls(amount)}
+            </span>
+          ) : (
+            <NumberField value={amount} onChange={onChange} prefix="₪" aria-label={`New money for ${category.name}`} />
+          )}
+          <button
+            type="button"
+            className={`small ${isRest ? '' : 'secondary'}`}
+            aria-pressed={isRest}
+            title={isRest ? 'Stop giving this category the rest' : 'Give this category whatever is left of the total'}
+            aria-label={`All the rest to ${category.name}`}
+            onClick={onToggleRest}
+          >
+            The rest
+          </button>
+        </div>
       </td>
       {showCash && (
         <td className={`num hide-sm${category.cashIls < 0 && !isZeroMoney(category.cashIls) ? ' bad-text' : ''}`}>

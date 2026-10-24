@@ -80,9 +80,12 @@ export async function fetchPrices(
   return { quotes, failures };
 }
 
-/** Yahoo symbols use "-" for share classes (BRK.B → BRK-B). */
-function yahooSymbol(ticker: string): string {
-  return ticker.replace(/\./g, '-');
+/**
+ * Yahoo symbols use "-" for US share classes (BRK.B → BRK-B) but keep "." for exchange suffixes
+ * (MXWO.L is London).
+ */
+export function yahooSymbol(ticker: string): string {
+  return ticker.replace(/\.([ABC])$/, '-$1');
 }
 
 async function yahooOne(ticker: string, fetchImpl: FetchFn, timeoutMs: number): Promise<One & { unavailable?: boolean }> {

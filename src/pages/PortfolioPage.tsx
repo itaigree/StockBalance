@@ -5,6 +5,7 @@ import { sampleData } from '../data/sample';
 import { allTickers, priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
 import { fmtAgo, fmtIls, fmtPercent, fmtPp, fmtShares, fmtUsd, isZeroMoney } from '../lib/format';
+import { ImportHoldings } from '../components/ImportHoldings';
 import { MarketBar } from '../components/MarketBar';
 import { PriceEditModal } from '../components/PriceEditModal';
 import { WeightBar } from '../components/WeightBar';
@@ -88,6 +89,7 @@ function Welcome() {
         <button type="button" onClick={() => navigateTo('categories')}>
           Set up categories
         </button>
+        <ImportHoldings className="secondary" onDone={() => navigateTo('categories')} />
         <button
           type="button"
           className="secondary"

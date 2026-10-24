@@ -4,6 +4,7 @@ import { useApp, allTickers } from '../state/AppState';
 import { downloadBackup, readBackupFile } from '../data/backup';
 import { emptyData } from '../data/schema';
 import { sampleData } from '../data/sample';
+import { ImportHoldings } from '../components/ImportHoldings';
 import { Modal } from '../components/Modal';
 import { NumberField } from '../components/NumberField';
 import './SettingsPage.css';
@@ -203,6 +204,15 @@ export function SettingsPage() {
             This file can't be restored: {restoreError}
           </div>
         )}
+      </section>
+
+      <section className="card" aria-labelledby="import-title">
+        <h2 id="import-title">Import holdings</h2>
+        <p>
+          Load your current shares from a Yahoo Finance portfolio export (Portfolio → Export). Each portfolio becomes a
+          category; you'll see a preview before anything changes.
+        </p>
+        <ImportHoldings onDone={setDone} />
       </section>
 
       <section className="card danger-zone" aria-labelledby="danger-title">

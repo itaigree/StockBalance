@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Category } from '../types';
-import { applyImport, parseCsv, parseYahooPortfolioCsv } from './importCsv';
+import { applyImport, defaultTarget, parseCsv, parseYahooPortfolioCsv } from './importCsv';
 import { YAHOO_CSV } from './importCsv.fixture';
 import { yahooSymbol } from './prices';
 
@@ -33,22 +33,40 @@ describe('parseYahooPortfolioCsv', () => {
 });
 
 describe('applyImport', () => {
-  it('replaces holdings of matching categories and adds new ones', () => {
-    const pension: Category = {
-      id: 'p',
-      name: 'pension',
-      color: '#2563eb',
-      targets: [{ ticker: 'VTI', percent: 100 }],
-      holdings: { VTI: 1, OLD: 3 },
-      cashIls: 50,
-      contribution: { kind: 'percent', percent: 70 },
-    };
-    const result = applyImport([pension], [
-      { name: 'Pension', holdings: { VTI: 5 } },
-      { name: 'Kids', holdings: { VT: 2 } },
-    ]);
+  const pension: Category = {
+    id: 'p',
+    name: 'pension',
+    color: '#2563eb',
+    targets: [{ ticker: 'VTI', percent: 100 }],
+    holdings: { VTI: 1, OLD: 3 },
+    cashIls: 50,
+    contribution: { kind: 'percent', percent: 70 },
+  };
+
+  it('matches categories by name by default', () => {
+    expect(defaultTarget([pension], { name: 'Pension', holdings: {} })).toEqual({ kind: 'existing', categoryId: 'p' });
+    expect(defaultTarget([pension], { name: 'Kids', holdings: {} })).toEqual({ kind: 'new', name: 'Kids' });
+  });
+
+  it('replaces holdings of the chosen category, creates new ones, skips, and adds up shared targets', () => {
+    const result = applyImport(
+      [pension],
+      [
+        { name: 'My Portfolio', holdings: { VTI: 5 } },
+        { name: 'Eitan', holdings: { VT: 2 } },
+        { name: 'Naveh', holdings: { VT: 1, VTI: 1 } },
+        { name: 'Galit', holdings: { AMZN: 10 } },
+      ],
+      [
+        { kind: 'existing', categoryId: 'p' },
+        { kind: 'new', name: 'Kids' },
+        { kind: 'new', name: ' kids ' },
+        { kind: 'skip' },
+      ],
+    );
     expect(result[0]).toEqual({ ...pension, holdings: { VTI: 5 } });
-    expect(result[1]).toMatchObject({ name: 'Kids', holdings: { VT: 2 }, targets: [], contribution: { kind: 'none' } });
+    expect(result).toHaveLength(2);
+    expect(result[1]).toMatchObject({ name: 'Kids', holdings: { VT: 3, VTI: 1 }, targets: [], contribution: { kind: 'none' } });
     expect(result[1].color).not.toBe(pension.color);
   });
 });

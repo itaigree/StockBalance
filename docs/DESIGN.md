@@ -180,6 +180,8 @@ import the JSON file. Nothing is sent anywhere except price/FX requests (ticker 
 
 ## Importing holdings
 
-Settings → Import holdings reads a Yahoo Finance portfolio export (CSV). Each portfolio becomes a
-category (a category with the same name keeps its targets and only gets its holdings replaced);
-shares are buys minus sells; non-USD rows are skipped. A preview is shown before anything changes.
+Settings → Import holdings reads a Yahoo Finance portfolio export (CSV). In the preview the user
+chooses, per portfolio, an existing category (its holdings are replaced; targets, rules and cash are
+kept), a new category (name editable; defaults to the portfolio name), or "don't import". The
+default is the category with the same name, if any. Portfolios sent to the same category are added
+together. Shares are buys minus sells; non-USD rows are skipped.

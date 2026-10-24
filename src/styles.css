@@ -657,3 +657,10 @@ label {
     flex-basis: 100%;
   }
 }
+
+.import-target {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 12rem;
+}

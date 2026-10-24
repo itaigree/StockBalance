@@ -257,8 +257,8 @@ export function SettingsPage() {
       <section className="card" aria-labelledby="import-title">
         <h2 id="import-title">Import holdings</h2>
         <p>
-          Load your current shares from a Yahoo Finance portfolio export (Portfolio → Export). Each portfolio becomes a
-          category; you'll see a preview before anything changes.
+          Load your current shares from a Yahoo Finance portfolio export (Portfolio → Export). Before anything
+          changes, you choose for each portfolio which category it goes into, or a new one.
         </p>
         <ImportHoldings onDone={setDone} />
       </section>

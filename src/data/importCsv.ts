@@ -116,28 +116,49 @@ export function parseYahooPortfolioCsv(text: string): ImportResult {
   return { ok: true, portfolios, warnings };
 }
 
+/** Where one imported portfolio goes. */
+export type ImportTarget = { kind: 'existing'; categoryId: string } | { kind: 'new'; name: string } | { kind: 'skip' };
+
+/** Default destination: the category with the same name (ignoring case), otherwise a new one. */
+export function defaultTarget(categories: Category[], portfolio: ImportedPortfolio): ImportTarget {
+  const match = categories.find((c) => c.name.trim().toLowerCase() === portfolio.name.toLowerCase());
+  return match ? { kind: 'existing', categoryId: match.id } : { kind: 'new', name: portfolio.name };
+}
+
 /**
- * Put imported holdings into the categories: a portfolio whose name matches a category
- * (ignoring case) replaces that category's holdings; any other portfolio becomes a new category
- * with no targets yet. Targets, rules and cash of existing categories are kept.
+ * Put imported holdings into the categories. A portfolio sent to an existing category replaces
+ * that category's holdings (its targets, rules and cash are kept); one sent to a new name creates
+ * a category with no targets yet. Portfolios sent to the same place are added together.
  */
-export function applyImport(categories: Category[], portfolios: ImportedPortfolio[]): Category[] {
-  const result = categories.map((c) => {
-    const p = portfolios.find((x) => x.name.toLowerCase() === c.name.trim().toLowerCase());
-    return p ? { ...c, holdings: { ...p.holdings } } : c;
+export function applyImport(categories: Category[], portfolios: ImportedPortfolio[], targets: ImportTarget[]): Category[] {
+  const add = (into: Record<string, number>, from: Record<string, number>) => {
+    for (const [t, n] of Object.entries(from)) into[t] = Math.round(((into[t] ?? 0) + n) * 1e6) / 1e6;
+  };
+
+  const existing = new Map<string, Record<string, number>>();
+  const created = new Map<string, { name: string; holdings: Record<string, number> }>();
+  portfolios.forEach((p, i) => {
+    const target = targets[i];
+    if (!target || target.kind === 'skip') return;
+    if (target.kind === 'existing') {
+      if (!categories.some((c) => c.id === target.categoryId)) return;
+      const h = existing.get(target.categoryId) ?? {};
+      add(h, p.holdings);
+      existing.set(target.categoryId, h);
+    } else {
+      const name = target.name.trim() || p.name;
+      const key = name.toLowerCase();
+      const entry = created.get(key) ?? { name, holdings: {} };
+      add(entry.holdings, p.holdings);
+      created.set(key, entry);
+    }
   });
-  for (const p of portfolios) {
-    if (result.some((c) => c.name.trim().toLowerCase() === p.name.toLowerCase())) continue;
-    const color = CATEGORY_COLORS.find((col) => !result.some((c) => c.color === col)) ?? CATEGORY_COLORS[result.length % CATEGORY_COLORS.length];
-    result.push({
-      id: newId(),
-      name: p.name,
-      color,
-      targets: [],
-      holdings: { ...p.holdings },
-      cashIls: 0,
-      contribution: { kind: 'none' },
-    });
+
+  const result = categories.map((c) => (existing.has(c.id) ? { ...c, holdings: existing.get(c.id)! } : c));
+  for (const { name, holdings } of created.values()) {
+    const color =
+      CATEGORY_COLORS.find((col) => !result.some((c) => c.color === col)) ?? CATEGORY_COLORS[result.length % CATEGORY_COLORS.length];
+    result.push({ id: newId(), name, color, targets: [], holdings, cashIls: 0, contribution: { kind: 'none' } });
   }
   return result;
 }

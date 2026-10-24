@@ -169,6 +169,9 @@ import the JSON file. Nothing is sent anywhere except price/FX requests (ticker 
 - Yahoo Finance chart API via the local Vite proxy (`/api/yahoo/v8/finance/chart/{symbol}`),
   price = `chart.result[0].meta.regularMarketPrice`; FX symbol `ILS=X`. Yahoo uses `-` for US share
   classes (BRK.B → BRK-B) but keeps exchange suffixes (MXWO.L).
+- On a hosted copy, Yahoo requests can go through the user's own Cloudflare Worker
+  (`worker/yahoo-proxy.js`, address in `settings.yahooProxyUrl`), which forwards only
+  `/v8/finance/chart/*` and adds CORS headers. Used for prices and for the `ILS=X` rate.
 - Finnhub `https://finnhub.io/api/v1/quote?symbol=X&token=KEY`, price = `c` (0 means unknown).
 - FX fallbacks: Frankfurter `https://api.frankfurter.dev/v1/latest?base=USD&symbols=ILS` →
   `rates.ILS`; then open.er-api `https://open.er-api.com/v6/latest/USD` → `rates.ILS`.

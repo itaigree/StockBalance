@@ -76,3 +76,14 @@ describe('import holdings', () => {
     });
   });
 });
+
+describe('price forwarder', () => {
+  it('saves the address and tests it', async () => {
+    const { user } = renderApp('settings', sample());
+    await user.type(screen.getByLabelText('Price forwarder address'), 'https://fwd.example.workers.dev');
+    await waitFor(() => expect(savedData().settings.yahooProxyUrl).toBe('https://fwd.example.workers.dev'));
+    await user.click(screen.getByRole('button', { name: 'Test' }));
+    // Tests have no network, so the forwarder can't be reached.
+    expect(await screen.findByText(/Couldn't reach your price forwarder/)).toBeInTheDocument();
+  });
+});

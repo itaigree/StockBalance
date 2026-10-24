@@ -9,13 +9,19 @@ export interface FetchPricesResult {
 }
 
 const CONCURRENCY = 4;
-const YAHOO_UNAVAILABLE = "Couldn't reach Yahoo (Yahoo prices only work when the app runs on your computer with npm start).";
+const YAHOO_UNAVAILABLE =
+  "Couldn't reach Yahoo (Yahoo prices need the app running on your computer with npm start, or a price forwarder set in Settings).";
+const FORWARDER_UNAVAILABLE = "Couldn't reach your price forwarder; check its address in Settings.";
 
 type One = { price: number } | { error: string };
 
-/** URL of the Yahoo chart API through the local dev-server proxy (see vite.config.ts). */
-export function yahooChartUrl(symbol: string): string {
-  return `/api/yahoo/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+/**
+ * URL of the Yahoo chart API: through the user's price forwarder when one is set, otherwise
+ * through the local dev-server proxy (see vite.config.ts).
+ */
+export function yahooChartUrl(symbol: string, proxyUrl = ''): string {
+  const base = proxyUrl.trim().replace(/\/+$/, '') || '/api/yahoo';
+  return `${base}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
 }
 
 /**
@@ -60,7 +66,7 @@ export async function fetchPrices(
   };
 
   if (provider === 'auto' || provider === 'yahoo') {
-    missing = record(await yahooPrices(missing, fetchImpl, timeoutMs), missing, 'yahoo');
+    missing = record(await yahooPrices(missing, settings.yahooProxyUrl, fetchImpl, timeoutMs), missing, 'yahoo');
   }
   if (provider === 'finnhub' || (provider === 'auto' && key && missing.length > 0)) {
     if (!key) {
@@ -88,11 +94,16 @@ export function yahooSymbol(ticker: string): string {
   return ticker.replace(/\.([ABC])$/, '-$1');
 }
 
-async function yahooOne(ticker: string, fetchImpl: FetchFn, timeoutMs: number): Promise<One & { unavailable?: boolean }> {
-  const r = await getJson(fetchImpl, yahooChartUrl(yahooSymbol(ticker)), timeoutMs);
+async function yahooOne(
+  ticker: string,
+  proxyUrl: string,
+  fetchImpl: FetchFn,
+  timeoutMs: number,
+): Promise<One & { unavailable?: boolean }> {
+  const r = await getJson(fetchImpl, yahooChartUrl(yahooSymbol(ticker), proxyUrl), timeoutMs);
   if (!r.ok) {
     if (r.kind === 'timeout') return { error: "Yahoo didn't answer in time." };
-    return { error: YAHOO_UNAVAILABLE, unavailable: true };
+    return { error: unavailableMessage(proxyUrl), unavailable: true };
   }
   const error = pick(r.json, 'chart', 'error');
   if (error) {
@@ -109,12 +120,16 @@ async function yahooOne(ticker: string, fetchImpl: FetchFn, timeoutMs: number): 
   return price !== null ? { price } : { error: 'Yahoo returned no price.' };
 }
 
-async function yahooPrices(tickers: string[], fetchImpl: FetchFn, timeoutMs: number): Promise<One[]> {
+function unavailableMessage(proxyUrl: string): string {
+  return proxyUrl.trim() ? FORWARDER_UNAVAILABLE : YAHOO_UNAVAILABLE;
+}
+
+async function yahooPrices(tickers: string[], proxyUrl: string, fetchImpl: FetchFn, timeoutMs: number): Promise<One[]> {
   if (tickers.length === 0) return [];
   // Try one first: if the proxy isn't there (static hosting), don't send the rest.
-  const first = await yahooOne(tickers[0], fetchImpl, timeoutMs);
-  if ('unavailable' in first && first.unavailable) return tickers.map(() => ({ error: YAHOO_UNAVAILABLE }));
-  const rest = await mapLimit(tickers.slice(1), CONCURRENCY, (t) => yahooOne(t, fetchImpl, timeoutMs));
+  const first = await yahooOne(tickers[0], proxyUrl, fetchImpl, timeoutMs);
+  if ('unavailable' in first && first.unavailable) return tickers.map(() => ({ error: unavailableMessage(proxyUrl) }));
+  const rest = await mapLimit(tickers.slice(1), CONCURRENCY, (t) => yahooOne(t, proxyUrl, fetchImpl, timeoutMs));
   return [first, ...rest].map((r) => ('price' in r ? { price: r.price } : { error: r.error }));
 }
 

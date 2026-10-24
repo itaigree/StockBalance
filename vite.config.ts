@@ -22,7 +22,7 @@ export default defineConfig({
   preview: { proxy },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'worker/**/*.test.js'],
     setupFiles: ['src/test-setup.ts'],
   },
 });

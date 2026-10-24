@@ -42,6 +42,17 @@ describe('fetchPrices', () => {
     expect(calls[0]).toBe('/api/yahoo/v8/finance/chart/VOO?interval=1d&range=1d');
   });
 
+  it('uses the price forwarder when one is set', async () => {
+    const { fn, calls } = router([[/^https:\/\/fwd\.example\.workers\.dev\/v8\/finance\/chart\/MXWO\.L/, () => yahooOk(150.2)]]);
+    const r = await fetchPrices(['MXWO.L'], settings({ yahooProxyUrl: 'https://fwd.example.workers.dev/' }), fn, NOW);
+    expect(r.quotes['MXWO.L']).toMatchObject({ priceUsd: 150.2, source: 'yahoo' });
+    expect(calls[0]).toBe('https://fwd.example.workers.dev/v8/finance/chart/MXWO.L?interval=1d&range=1d');
+
+    const down = router([]);
+    const r2 = await fetchPrices(['VOO'], settings({ yahooProxyUrl: 'https://fwd.example.workers.dev' }), down.fn, NOW);
+    expect(r2.failures.VOO).toMatch(/price forwarder/);
+  });
+
   it('reports unknown symbols and non-USD listings per ticker', async () => {
     const { fn } = router([[/chart\/XXXX/, yahooNotFound], [/chart\/TEVA/, () => yahooOk(60, 'ILA')], [/chart\/VOO/, () => yahooOk(500)]]);
     const r = await fetchPrices(['VOO', 'XXXX', 'TEVA'], settings({ priceProvider: 'yahoo' }), fn, NOW);
@@ -125,6 +136,14 @@ describe('fetchUsdIls', () => {
     expect(await fetchUsdIls(settings(), fn, NOW)).toEqual({
       quote: { usdIls: 3.6512, asOf: '2026-10-23T10:00:00.000Z', source: 'yahoo' },
     });
+  });
+
+  it('gets the rate through the price forwarder when one is set', async () => {
+    const { fn, calls } = router([[/fwd\.example\.workers\.dev\/v8\/finance\/chart\/ILS%3DX/, () => yahooOk(3.6, 'ILS')]]);
+    expect(await fetchUsdIls(settings({ yahooProxyUrl: 'https://fwd.example.workers.dev' }), fn, NOW)).toMatchObject({
+      quote: { usdIls: 3.6, source: 'yahoo' },
+    });
+    expect(calls).toHaveLength(1);
   });
 
   it('falls back to Frankfurter, then open.er-api', async () => {

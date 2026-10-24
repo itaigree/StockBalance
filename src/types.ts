@@ -73,6 +73,11 @@ export interface Settings {
   priceProvider: PriceProviderSetting;
   /** Free API key from finnhub.io; empty string when not set. */
   finnhubApiKey: string;
+  /**
+   * Address of the user's own price forwarder (Cloudflare Worker, see worker/yahoo-proxy.js) for
+   * Yahoo prices on a hosted copy; empty string = use the local dev server's /api/yahoo.
+   */
+  yahooProxyUrl: string;
   /** Broker currency conversion fee/spread in percent (0.3 means converting costs 0.3% extra). */
   fxFeePercent: number;
   /** When true, broker orders are for whole shares only. */

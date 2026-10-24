@@ -59,6 +59,24 @@ it in **Settings → Prices** (or type prices yourself).
 Each browser keeps its own data: the phone and the computer don't share it. To move data, use
 **Settings → Download backup** on one and **Restore from backup** on the other.
 
+### Prices for every exchange (free price forwarder)
+
+On the hosted copy, Finnhub's free key only covers US stocks. To get prices for any stock Yahoo
+Finance knows, including London-listed ones like `MXWO.L`, set up your own free price forwarder.
+It's a tiny Cloudflare Worker that fetches prices from Yahoo for the app
+([`worker/yahoo-proxy.js`](worker/yahoo-proxy.js)). It only forwards price requests, nothing else.
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com/sign-up).
+2. Go to **Workers & Pages → Create → Create Worker** (start from "Hello World"), name it e.g.
+   `stockbalance-prices`, and click **Deploy**.
+3. Click **Edit code**, replace everything with the contents of `worker/yahoo-proxy.js`, and click
+   **Deploy** again.
+4. Copy the Worker's address (like `https://stockbalance-prices.yourname.workers.dev`).
+5. In the app: **Settings → Prices → Price forwarder address**, paste it, press **Test**, and choose
+   **Automatic** or **Yahoo Finance** as the price source.
+
+The free plan allows 100,000 requests a day; refreshing prices uses one per stock.
+
 ## How the calculation works
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the details. In short:

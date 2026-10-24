@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppData, PriceProviderSetting } from '../types';
 import { useApp, allTickers } from '../state/AppState';
 import { downloadBackup, readBackupFile } from '../data/backup';
+import { fetchPrices } from '../data/prices';
 import { emptyData } from '../data/schema';
 import { sampleData } from '../data/sample';
 import { ImportHoldings } from '../components/ImportHoldings';
@@ -14,7 +15,7 @@ const PROVIDERS: { id: PriceProviderSetting; label: string; help: string }[] = [
   {
     id: 'yahoo',
     label: 'Yahoo Finance',
-    help: 'No key needed, but only works when the app runs on your computer with npm start.',
+    help: 'No key needed and covers every exchange. Works when the app runs on your computer with npm start, or anywhere once you set up a price forwarder (below).',
   },
   { id: 'finnhub', label: 'Finnhub', help: 'Needs a free API key; also works on a hosted copy of the app.' },
   { id: 'manual', label: 'Manual', help: 'You type the prices yourself (the exchange rate is still fetched).' },
@@ -24,6 +25,7 @@ export function SettingsPage() {
   const { data, actions } = useApp();
   const { settings } = data;
   const [showKey, setShowKey] = useState(false);
+  const [proxyTest, setProxyTest] = useState<{ ok: boolean; text: string } | 'testing' | null>(null);
   const [minOrder, setMinOrder] = useState<number | null>(settings.minOrderUsd);
   const [maxTickers, setMaxTickers] = useState<number | null>(settings.maxTickersPerPurchase);
   const [fee, setFee] = useState<number | null>(settings.fxFeePercent);
@@ -99,6 +101,52 @@ export function SettingsPage() {
               finnhub.io
             </a>
             . Only ticker symbols are sent to these services, never your holdings.
+          </span>
+        </label>
+        <label className="field forwarder-field">
+          Price forwarder address (optional)
+          <span className="row">
+            <input
+              type="text"
+              inputMode="url"
+              value={settings.yahooProxyUrl}
+              placeholder="https://stockbalance-prices.yourname.workers.dev"
+              onChange={(e) => {
+                actions.updateSettings({ yahooProxyUrl: e.target.value.trim() });
+                setProxyTest(null);
+              }}
+              autoComplete="off"
+              spellCheck={false}
+              className="key-input"
+              aria-label="Price forwarder address"
+            />
+            <button
+              type="button"
+              className="secondary small"
+              disabled={!settings.yahooProxyUrl || proxyTest === 'testing'}
+              onClick={async () => {
+                setProxyTest('testing');
+                const r = await fetchPrices(['VOO'], { ...settings, priceProvider: 'yahoo' });
+                setProxyTest(
+                  r.quotes.VOO
+                    ? { ok: true, text: `Works: VOO is $${r.quotes.VOO.priceUsd.toFixed(2)}.` }
+                    : { ok: false, text: r.failures.VOO ?? "It didn't work." },
+                );
+              }}
+            >
+              {proxyTest === 'testing' ? 'Testing…' : 'Test'}
+            </button>
+          </span>
+          {proxyTest && proxyTest !== 'testing' && (
+            <span className={proxyTest.ok ? 'good-text small-text' : 'error-text'}>{proxyTest.text}</span>
+          )}
+          <span className="hint">
+            Your own free Cloudflare Worker that fetches Yahoo prices for the hosted app — needed for stocks outside
+            the US (like MXWO.L) on your phone. Setup steps are in the{' '}
+            <a href="https://github.com/itaigree/StockBalance#prices-for-every-exchange-free-price-forwarder" target="_blank" rel="noreferrer">
+              README
+            </a>
+            .
           </span>
         </label>
       </section>

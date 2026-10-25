@@ -68,4 +68,23 @@ describe('HistoryPage', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.getByText(/now own fewer shares than the purchase gave them/)).toBeInTheDocument();
   });
+
+  it('shows one category’s purchases as a table with totals', async () => {
+    const { after } = withPurchase();
+    const { user } = renderApp('history', after);
+    await user.click(screen.getByRole('tab', { name: 'Kids' }));
+    const table = screen.getByRole('region', { name: 'Kids purchases' });
+    const body = within(table).getAllByRole('row');
+    // header, one purchase, total
+    expect(body).toHaveLength(3);
+    expect(within(body[1]).getAllByText('₪1,000.00').length).toBeGreaterThan(0);
+    expect(within(body[1]).getByText('October deposit')).toBeInTheDocument();
+    const kidsAlloc = after.transactions[0].allocations.filter((a) => a.categoryId === 'sample-kids');
+    const spent = kidsAlloc.reduce((sum, a) => sum + a.costUsd, 0);
+    expect(within(body[2]).getByText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(spent))).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Kids totals' })).toHaveTextContent('Left over');
+    await user.click(screen.getByRole('tab', { name: 'All purchases' }));
+    expect(screen.getByRole('article')).toBeInTheDocument();
+  });
 });
+

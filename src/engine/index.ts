@@ -4,3 +4,4 @@ export { valueCategory } from './valuation';
 export { planPurchase } from './plan';
 export { transactionFromPlan, applyTransaction, revertTransaction } from './ledger';
 export { mergedTargets, targetSum, targetsAddUp } from './targets';
+export { categoryPurchaseSummary, type CategoryPurchaseRow, type CategoryPurchaseSummary } from './summary';

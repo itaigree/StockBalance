@@ -6,6 +6,7 @@ import { fetchPrices } from '../data/prices';
 import { emptyData } from '../data/schema';
 import { sampleData } from '../data/sample';
 import { useBackup } from '../components/Backup';
+import { BuyStrategyChoice } from '../components/BuyStrategyChoice';
 import { ImportHoldings } from '../components/ImportHoldings';
 import { Modal } from '../components/Modal';
 import { NumberField } from '../components/NumberField';
@@ -157,6 +158,11 @@ export function SettingsPage() {
       <section className="card" aria-labelledby="defaults-title">
         <h2 id="defaults-title">Purchase defaults</h2>
         <p className="muted small-text">Used on the Invest page; you can still change them for a single purchase there.</p>
+        <BuyStrategyChoice
+          name="default-strategy"
+          value={settings.buyStrategy}
+          onChange={(buyStrategy) => actions.updateSettings({ buyStrategy })}
+        />
         <div className="settings-grid">
           <label className="checkbox">
             <input

@@ -734,3 +734,30 @@ label {
   justify-content: space-between;
   gap: 0.5rem 1rem;
 }
+.choices {
+  border: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  min-width: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.choices legend {
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 0.4rem;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+.choice input {
+  margin-top: 0.25rem;
+}
+.choice > span {
+  display: flex;
+  flex-direction: column;
+}

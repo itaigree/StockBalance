@@ -47,3 +47,24 @@ export function waterfill(values: number[], weights: number[], budget: number, m
   }
   return out;
 }
+
+/**
+ * "Fewest orders" filling (see docs/DESIGN.md): the position furthest below its target value gets
+ * money first, up to its target, then the next one, until the budget runs out. Positions at or
+ * above target get nothing; ties go to the earlier position. Returns the amount for each position.
+ */
+export function fillLargestGapFirst(values: number[], targets: number[], budget: number): number[] {
+  const out = values.map(() => 0);
+  let left = budget;
+  const order = values
+    .map((_, i) => i)
+    .filter((i) => targets[i] - values[i] > 0)
+    .sort((a, b) => targets[b] - values[b] - (targets[a] - values[a]) || a - b);
+  for (const i of order) {
+    // Stop at floating-point crumbs, so they don't start another position.
+    if (!(left > 1e-9)) break;
+    out[i] = Math.min(left, targets[i] - values[i]);
+    left -= out[i];
+  }
+  return out;
+}

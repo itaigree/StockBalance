@@ -1,4 +1,4 @@
-import type { Category, Id } from '../types';
+import type { BuyStrategy, Category, Id } from '../types';
 
 export interface SplitResult {
   /** ILS amount per category id (every category in the input has an entry). */
@@ -46,6 +46,12 @@ export interface PlanOptions {
    * proportion to their targets), so the money goes to the rest.
    */
   excludeTickers?: string[];
+  /**
+   * How a category's money is spread over its stocks: 'balance' (default) raises all the stocks
+   * below target together; 'fewest' fills the one furthest below target first, then the next, so
+   * fewer different stocks are bought. See docs/DESIGN.md, "Fewest orders".
+   */
+  strategy?: BuyStrategy;
 }
 
 export interface PlanInput {

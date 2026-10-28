@@ -11,7 +11,9 @@ you invest so that every category stays balanced the way you want.
   rules (fixed amounts, percentages, "whatever is left"), and you can change the split for this
   purchase. Then it calculates the buys that bring each category closest to its targets, and
   **merges them into one order per stock**, so you place as few orders as possible. It also tells
-  you how many shekels to convert to dollars.
+  you how many shekels to convert to dollars. Choose *Fewest orders* (Settings → Purchase
+  defaults, or Options on the Invest page) to fill the stock furthest below its target first, then
+  the next, instead of spreading the money over every stock below target.
 - **Record.** After you buy, press *I made a purchase* and record what was actually bought. The
   shares go to the right categories, and any leftover money stays with its category for next time.
   The purchase shows on each category's page and in *All purchases* on the Portfolio page, where it

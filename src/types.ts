@@ -74,6 +74,12 @@ export interface FxQuote {
 /** Where prices come from. "auto" tries Yahoo (via the local dev server proxy), then Finnhub if a key is set. */
 export type PriceProviderSetting = 'auto' | 'yahoo' | 'finnhub' | 'manual';
 
+/**
+ * How a category's money is spread over its stocks: 'balance' raises every stock below target
+ * together; 'fewest' fills the stock furthest below target first, then the next (fewer orders).
+ */
+export type BuyStrategy = 'balance' | 'fewest';
+
 export interface Settings {
   priceProvider: PriceProviderSetting;
   /** Free API key from finnhub.io; empty string when not set. */
@@ -91,6 +97,8 @@ export interface Settings {
   minOrderUsd: number;
   /** Buy at most this many different stocks in one purchase. null = no limit. */
   maxTickersPerPurchase: number | null;
+  /** How each category's money is spread over its stocks. */
+  buyStrategy: BuyStrategy;
 }
 
 /** One executed broker order (all categories combined). */

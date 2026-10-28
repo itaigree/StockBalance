@@ -6,7 +6,7 @@ import { balanceObjective, planPurchase } from './plan';
 import { splitContribution } from './split';
 import { valueCategory } from './valuation';
 import type { PlanInput, PlanResult } from './types';
-import { waterfill } from './waterfill';
+import { fillLargestGapFirst, waterfill } from './waterfill';
 
 const TICKERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
@@ -47,6 +47,7 @@ const inputArb: fc.Arbitrary<PlanInput> = fc
     wholeShares: fc.boolean(),
     minOrderUsd: fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 3000 })),
     maxTickers: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 4 })),
+    strategy: fc.constantFrom('balance' as const, 'fewest' as const),
   })
   .map((r) => ({
     categories: r.cats.map((c) => c.category),
@@ -54,7 +55,7 @@ const inputArb: fc.Arbitrary<PlanInput> = fc
     usdIls: r.usdIls,
     fxFeePercent: r.fxFeePercent,
     budgetsIls: Object.fromEntries(r.cats.map((c) => [c.category.id, c.budget])),
-    options: { wholeShares: r.wholeShares, minOrderUsd: r.minOrderUsd, maxTickers: r.maxTickers },
+    options: { wholeShares: r.wholeShares, minOrderUsd: r.minOrderUsd, maxTickers: r.maxTickers, strategy: r.strategy },
   }));
 
 const buysOf = (plan: PlanResult) =>
@@ -150,7 +151,7 @@ describe('planPurchase invariants', () => {
   it('invests the whole budget with fractional shares and no limits', () => {
     fc.assert(
       fc.property(inputArb, (raw) => {
-        const input = { ...raw, options: { wholeShares: false, minOrderUsd: 0, maxTickers: null } };
+        const input = { ...raw, options: { ...raw.options, wholeShares: false, minOrderUsd: 0, maxTickers: null } };
         const plan = planPurchase(input);
         const rate = input.usdIls * (1 + input.fxFeePercent / 100);
         for (const c of plan.categories) {
@@ -277,5 +278,43 @@ describe('performance', () => {
     const ms = performance.now() - start;
     expect(plan.orders.length).toBeGreaterThan(0);
     expect(ms).toBeLessThan(1000);
+  });
+});
+
+describe('"fewest orders" filling', () => {
+  it('fills the largest gaps first, never above target, using no more positions than balancing', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.record({ value: fc.double({ min: 0, max: 1000, noNaN: true }), weight: fc.integer({ min: 1, max: 100 }) }), {
+          minLength: 1,
+          maxLength: 6,
+        }),
+        fc.double({ min: 0, max: 5000, noNaN: true }),
+        fc.double({ min: 0, max: 1000, noNaN: true }),
+        (positions, budget, otherHoldings) => {
+          const wsum = positions.reduce((a, p) => a + p.weight, 0);
+          const weights = positions.map((p) => p.weight / wsum);
+          const values = positions.map((p) => p.value);
+          const total = values.reduce((a, v) => a + v, 0) + otherHoldings + budget;
+          const targets = weights.map((w) => w * total);
+          const gaps = values.map((v, i) => targets[i] - v);
+
+          const fewest = fillLargestGapFirst(values, targets, budget);
+          const balance = waterfill(values, weights, budget, total);
+          const bought = (xs: number[]) => xs.map((x, i) => (x > 1e-9 ? i : -1)).filter((i) => i >= 0);
+
+          expect(bought(fewest).length).toBeLessThanOrEqual(bought(balance).length);
+          fewest.forEach((x, i) => expect(x).toBeLessThanOrEqual(Math.max(0, gaps[i]) + 1e-9));
+          const room = gaps.reduce((a, g) => a + Math.max(0, g), 0);
+          expect(Math.abs(fewest.reduce((a, x) => a + x, 0) - Math.min(budget, room))).toBeLessThan(1e-6);
+          // Every stock bought is filled to its target except possibly the last one, and nothing
+          // left out is further below its target than one that was bought.
+          expect(bought(fewest).filter((i) => fewest[i] < gaps[i] - 1e-6).length).toBeLessThanOrEqual(1);
+          const smallestBoughtGap = Math.min(...bought(fewest).map((i) => gaps[i]));
+          gaps.forEach((g, i) => fewest[i] <= 1e-9 && expect(g).toBeLessThanOrEqual(smallestBoughtGap + 1e-9));
+        },
+      ),
+      RUNS,
+    );
   });
 });

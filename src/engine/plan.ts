@@ -3,7 +3,7 @@ import { fmtIls, fmtPercent } from '../lib/format';
 import { mergedTargets, validPrice } from './targets';
 import type { CategoryPlan, PlanInput, PlanOptions, PlanResult, PlannedBuy, PlannedOrder } from './types';
 import { valueCategory } from './valuation';
-import { waterfill } from './waterfill';
+import { fillLargestGapFirst, waterfill } from './waterfill';
 
 const EPS = 1e-9;
 /** Dollars of slack when flooring an order to whole shares (absorbs floating-point noise). */
@@ -126,6 +126,7 @@ export function planPurchase(input: PlanInput): PlanResult {
 
   const price = (t: string) => prices[t];
   const wholeShares = options.wholeShares;
+  const fewest = options.strategy === 'fewest';
 
   // Tickers that may be bought. Order limits drop tickers for one round; `banned` drops them for good.
   const candidates = new Set<string>();
@@ -142,7 +143,9 @@ export function planPurchase(input: PlanInput): PlanResult {
     const dropped = new Set<string>();
     const ideal = applyOrderLimits(cats, allowed, options, dropped, price);
     ({ shares, orderShares } = roundOrders(cats, ideal, price, wholeShares));
-    if (wholeShares) topUp(cats, allowed, shares, orderShares, price, options);
+    // With "fewest orders", leftovers only top up the stocks already chosen, never open new orders.
+    const topUpTickers = fewest ? new Set([...totalsByTicker(ideal)].filter(([, x]) => x > EPS).map(([t]) => t)) : allowed;
+    if (wholeShares) topUp(cats, allowed, topUpTickers, shares, orderShares, price, options);
 
     // Rounding can leave an order below the minimum: ban the smallest such ticker and start over.
     // (With fractional shares, flooring to 1e-6 of a share may shave off a fraction of a cent.)
@@ -157,8 +160,9 @@ export function planPurchase(input: PlanInput): PlanResult {
     }
 
     // A ticker that kept its place under the limits but couldn't buy even one share wastes that
-    // place: ban it and give the dropped tickers another chance.
-    if (wholeShares && dropped.size > 0) {
+    // place: ban it and give the dropped tickers another chance. With "fewest orders" its money
+    // then goes to the next stock in line.
+    if (wholeShares && (dropped.size > 0 || fewest)) {
       const wasted = [...totalsByTicker(ideal)].filter(([t, x]) => x > EPS && !orderShares.has(t)).map(([t]) => t);
       if (wasted.length > 0) {
         for (const t of wasted) banned.add(t);
@@ -231,29 +235,44 @@ export function planPurchase(input: PlanInput): PlanResult {
 
 /**
  * Step 1: ideal dollar buys per category over the allowed tickers. Single stocks and groups are
- * balanced against each other; a group's money is then split between its allowed stocks.
+ * balanced against each other; a group's money is then split between its allowed stocks. With
+ * "fewest orders" both steps fill the one furthest below target first instead.
  */
-function idealBuys(cats: Cat[], allowed: Set<string>): PerCat {
+function idealBuys(cats: Cat[], allowed: Set<string>, fewest: boolean): PerCat {
   return cats.map((c) => {
     const out = new Map<string, number>();
     if (!(c.budgetUsd > 0)) return out;
     const units = unitsOf(c, allowed);
-    const amounts = waterfill(
-      units.map((u) => u.value),
-      units.map((u) => u.weight),
-      c.budgetUsd,
-      c.total,
-    );
+    const values = units.map((u) => u.value);
+    const amounts = fewest
+      ? fillLargestGapFirst(
+          values,
+          units.map((u) => u.weight * c.total),
+          c.budgetUsd,
+        )
+      : waterfill(
+          values,
+          units.map((u) => u.weight),
+          c.budgetUsd,
+          c.total,
+        );
     units.forEach((u, k) => {
       if (!(amounts[k] > 0)) return;
-      const inner =
-        u.tickers.length === 1
-          ? [amounts[k]]
-          : waterfill(
-              u.tickers.map((t) => c.values.get(t)!),
-              u.tickers.map((t) => c.weights.get(t)!),
+      let inner = [amounts[k]];
+      if (u.tickers.length > 1) {
+        const memberValues = u.tickers.map((t) => c.values.get(t)!);
+        const memberWeights = u.tickers.map((t) => c.weights.get(t)!);
+        // A stock's target within the group: its part of the group's target among these stocks.
+        const groupTarget = u.weight * c.total;
+        const sumW = sum(memberWeights);
+        inner = fewest
+          ? fillLargestGapFirst(
+              memberValues,
+              memberWeights.map((w) => (groupTarget * w) / sumW),
               amounts[k],
-            );
+            )
+          : waterfill(memberValues, memberWeights, amounts[k]);
+      }
       u.tickers.forEach((t, j) => inner[j] > 0 && out.set(t, inner[j]));
     });
     return out;
@@ -298,7 +317,7 @@ function applyOrderLimits(
 ): PerCat {
   const min = options.minOrderUsd;
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const ideal = idealBuys(cats, allowed);
+    const ideal = idealBuys(cats, allowed, options.strategy === 'fewest');
     const active = [...totalsByTicker(ideal)]
       .filter(([, x]) => x > EPS)
       .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
@@ -341,13 +360,14 @@ function roundOrders(
 }
 
 /**
- * Step 3b (whole shares): spend leftovers on one more share at a time, choosing the share that
- * reduces the balance objective the most, until no extra share helps. Mutates `shares` and
- * `orderShares`.
+ * Step 3b (whole shares): spend leftovers on one more share at a time of the `tickers` given,
+ * choosing the share that reduces the balance objective the most, until no extra share helps.
+ * Mutates `shares` and `orderShares`.
  */
 function topUp(
   cats: Cat[],
   allowed: Set<string>,
+  tickers: Set<string>,
   shares: PerCat,
   orderShares: Map<string, number>,
   price: (t: string) => number,
@@ -377,7 +397,7 @@ function topUp(
       { gap: e * c.total - valueNow(i, t), weight: e },
     ];
   };
-  const candidates = [...allowed].sort();
+  const candidates = [...tickers].sort();
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     let best: { t: string; payers: number[]; pay: number[]; delta: number } | null = null;

@@ -85,6 +85,20 @@ describe('InvestPage', () => {
     expect(savedData().categories.find((c) => c.id === 'sample-kids')!.cashIls).toBeCloseTo(250, 6);
   });
 
+  it('buys fewer different stocks with "Fewest orders", and can make it the default', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '20000');
+    const balanced = orderRows();
+    await user.click(screen.getByText('Options'));
+    await user.click(screen.getByRole('radio', { name: /Fewest orders/ }));
+    const fewest = orderRows();
+    expect(balanced).toHaveLength(5);
+    expect(fewest).toHaveLength(4);
+    expect(screen.getByText(/^Fewest orders · whole shares/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save these options as the default' }));
+    await waitFor(() => expect(savedData().settings.buyStrategy).toBe('fewest'));
+  });
+
   it('asks for missing prices before calculating', async () => {
     const data = sample();
     delete data.prices.GLD;

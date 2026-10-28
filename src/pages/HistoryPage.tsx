@@ -3,12 +3,15 @@ import type { Category, Transaction } from '../types';
 import { useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
 import { fmtDate, fmtIls, fmtRate, fmtShares, fmtUsd, isZeroMoney } from '../lib/format';
+import { CategoryPurchases } from '../components/CategoryPurchases';
 import { Modal } from '../components/Modal';
 import './HistoryPage.css';
 
 export function HistoryPage() {
   const { data, actions } = useApp();
   const [undoing, setUndoing] = useState<Transaction | null>(null);
+  /** 'all' = every purchase; otherwise a category id. */
+  const [view, setView] = useState<string>('all');
   const byId = new Map(data.categories.map((c) => [c.id, c]));
   const transactions = [...data.transactions].reverse();
 
@@ -17,11 +20,33 @@ export function HistoryPage() {
       <div className="page-header">
         <div>
           <h1>History</h1>
-          <p className="muted">Every purchase you recorded, newest first.</p>
+          <p className="muted">
+            {view === 'all' ? 'Every purchase you recorded, newest first.' : 'What this category got from each purchase, oldest first.'}
+          </p>
         </div>
       </div>
 
-      {transactions.length === 0 ? (
+      {transactions.length > 0 && data.categories.length > 0 && (
+        <div className="view-tabs" role="tablist" aria-label="Show">
+          {[{ id: 'all', name: 'All purchases', color: '' }, ...data.categories].map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              aria-selected={view === c.id}
+              className={`small ${view === c.id ? '' : 'secondary'}`}
+              onClick={() => setView(c.id)}
+            >
+              {c.color && <span className="dot" style={{ background: c.color }} />}
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view !== 'all' && byId.has(view) ? (
+        <CategoryPurchases category={byId.get(view)!} transactions={data.transactions} />
+      ) : transactions.length === 0 ? (
         <section className="card empty">
           <p>No purchases recorded yet. After you buy, record the purchase on the Invest page and it will show up here.</p>
           <button type="button" onClick={() => navigateTo('invest')}>

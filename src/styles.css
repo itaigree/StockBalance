@@ -664,3 +664,14 @@ label {
   gap: 0.3rem;
   min-width: 12rem;
 }
+.plain-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.plain-fieldset legend {
+  font-weight: 500;
+  padding: 0;
+  margin-bottom: 0.25rem;
+}

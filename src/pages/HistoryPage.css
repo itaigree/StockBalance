@@ -19,3 +19,29 @@
 .tx-card details[open] summary {
   margin-bottom: 0.5rem;
 }
+.view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.view-tabs .dot {
+  margin-right: 0;
+}
+.purchases-table th {
+  white-space: nowrap;
+}
+.category-totals-grid .big-number {
+  margin: 0.1rem 0;
+}
+.purchases-table .date-cell {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .grid.category-totals-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .category-totals-grid .big-number {
+    font-size: 1.3rem;
+  }
+}

@@ -12,11 +12,15 @@ you invest so that every category stays balanced the way you want.
   purchase. Then it calculates the buys that bring each category closest to its targets, and
   **merges them into one order per stock**, so you place as few orders as possible. It also tells
   you how many shekels to convert to dollars.
-- **Record.** After you buy, record what was actually bought. The shares go to the right
-  categories, any leftover money stays with its category for next time, and the purchase is kept
-  in History, where it can be undone.
+- **Record.** After you buy, press *I made a purchase* and record what was actually bought. The
+  shares go to the right categories, and any leftover money stays with its category for next time.
+  The purchase shows on each category's page and in *All purchases* on the Portfolio page, where it
+  can be undone.
+- **Category pages.** Each category has its own page: what it holds compared with its targets (in
+  pie charts and a table) and every purchase made for it.
 - **Private.** Everything is stored only in your browser. Nothing is uploaded. Only ticker symbols are
-  sent to the price services. Use *Settings → Download backup* to keep a copy.
+  sent to the price services. The app reminds you to make a backup. On a phone, *Back up now*
+  opens the share sheet, so you can keep the file in Drive, iCloud or an email to yourself.
 
 The app only suggests purchases. It never suggests selling.
 
@@ -57,7 +61,8 @@ forwarding doesn't exist, so get a free key at [finnhub.io](https://finnhub.io/r
 it in **Settings → Prices** (or type prices yourself).
 
 Each browser keeps its own data: the phone and the computer don't share it. To move data, use
-**Settings → Download backup** on one and **Restore from backup** on the other.
+**Settings → Download backup** (or **Save or send…** on a phone) on one and **Restore from backup**
+on the other.
 
 ### Prices for every exchange (free price forwarder)
 

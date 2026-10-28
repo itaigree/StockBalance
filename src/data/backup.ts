@@ -42,3 +42,48 @@ export async function readBackupFile(file: File): Promise<ParseResult> {
   }
   return parseAppData(json);
 }
+
+/**
+ * How this device can share the backup file (the phone's share sheet: Drive, iCloud, Files,
+ * email…): as JSON, as plain text (some browsers only share text files; the content is the same and
+ * restoring accepts both), or not at all.
+ */
+function shareableKind(): 'json' | 'text' | null {
+  if (typeof navigator === 'undefined' || typeof navigator.canShare !== 'function') return null;
+  const can = (name: string, type: string) => {
+    try {
+      return navigator.canShare({ files: [new File(['{}'], name, { type })] });
+    } catch {
+      return false;
+    }
+  };
+  if (can('backup.json', 'application/json')) return 'json';
+  if (can('backup.txt', 'text/plain')) return 'text';
+  return null;
+}
+
+/** True when the backup can be sent through the share sheet. */
+export function canShareBackup(): boolean {
+  return shareableKind() !== null;
+}
+
+/** The backup as a file for the share sheet, or null if this device can't share files. */
+export function shareableBackupFile(data: AppData, date: Date = new Date()): File | null {
+  const kind = shareableKind();
+  if (!kind) return null;
+  const name = backupFileName(date);
+  return kind === 'json'
+    ? new File([serializeBackup(data)], name, { type: 'application/json' })
+    : new File([serializeBackup(data)], name.replace(/\.json$/, '.txt'), { type: 'text/plain' });
+}
+
+/** Open the share sheet with the backup file. False if the user cancelled. */
+export async function shareBackupFile(file: File): Promise<boolean> {
+  try {
+    await navigator.share({ files: [file], title: 'StockBalance backup' });
+    return true;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return false;
+    throw e;
+  }
+}

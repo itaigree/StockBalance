@@ -183,12 +183,12 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
                 </table>
               </div>
               <p className="muted small-text">
-                Prices are the latest known ones; the real price when you buy may be a little different. Afterwards,
-                record what you actually bought so your holdings stay correct.
+                Prices are the latest known ones; the real price when you buy may be a little different. After buying,
+                press "I made a purchase" and record what you actually bought, so your holdings stay correct.
               </p>
               {plan.orders.length > 0 && (
                 <button type="button" onClick={onRecord}>
-                  I placed these orders — record the purchase
+                  I made a purchase
                 </button>
               )}
             </section>

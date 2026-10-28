@@ -11,6 +11,8 @@ import { MarketBar } from '../components/MarketBar';
 import { NumberField } from '../components/NumberField';
 import { PlanResultView } from '../components/PlanResultView';
 import { RecordPurchaseModal } from '../components/RecordPurchaseModal';
+import { UndoModal } from '../components/AllPurchases';
+import { useBackup } from '../components/Backup';
 import './InvestPage.css';
 
 export function InvestPage() {
@@ -37,6 +39,10 @@ export function InvestPage() {
   const [frozen, setFrozen] = useState<SavedPlan | null>(draft?.saved ?? null);
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const lastTx = data.transactions.at(-1);
+  const backup = useBackup();
+  const [backedUp, setBackedUp] = useState(false);
 
   const inputs: InvestInputs = { total, overrides, restId, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride, excluded };
   const inputsKey = JSON.stringify(inputs);
@@ -119,6 +125,7 @@ export function InvestPage() {
   const afterRecording = (kind: 'purchase' | 'cash') => {
     setRecording(false);
     setRecorded(kind);
+    setBackedUp(false);
     setFrozen(null);
     clearDraft();
     setTotal(null);
@@ -173,12 +180,33 @@ export function InvestPage() {
       {recorded && (
         <div className="banner info" role="status">
           {recorded === 'purchase'
-            ? 'Purchase recorded. Your holdings and cash were updated.'
+            ? "Purchase recorded. Your holdings and cash were updated; it's listed on each category's page."
             : "Saved. The money was added to each category's cash and will be included next time."}{' '}
-          <button type="button" className="link-button" onClick={() => navigateTo('history')}>
-            See it in History
+          <button type="button" className="link-button" onClick={() => setUndoing(true)}>
+            Undo
           </button>
+          {' · '}
+          {backedUp ? (
+            'Backed up.'
+          ) : (
+            <button type="button" className="link-button" onClick={async () => setBackedUp(await backup.backUp())}>
+              Back up now
+            </button>
+          )}
+          {backup.error && <div className="error-text">{backup.error}</div>}
         </div>
+      )}
+      {undoing && lastTx && (
+        <UndoModal
+          tx={lastTx}
+          categories={data.categories}
+          onClose={() => setUndoing(false)}
+          onConfirm={() => {
+            actions.undoTransaction(lastTx.id);
+            setUndoing(false);
+            setRecorded(null);
+          }}
+        />
       )}
 
       <section className="card" aria-labelledby="amount-title">
@@ -360,7 +388,7 @@ export function InvestPage() {
       {frozen && (
         <div className="banner info" role="status">
           This is the plan you made {fmtAgo(frozen.savedAt)} ({fmtDateTime(frozen.savedAt)}), with the prices from then. If
-          you already placed these orders, record them below.{' '}
+          you already bought, press "I made a purchase" below.{' '}
           <button type="button" className="link-button" onClick={() => setFrozen(null)}>
             Recalculate with today's prices
           </button>

@@ -51,11 +51,11 @@ describe('InvestPage', () => {
     expect(screen.queryByText('edited')).not.toBeInTheDocument();
   });
 
-  it('records the purchase into holdings, cash and history', async () => {
+  it('records the purchase into holdings, cash and the purchase list, and can undo it', async () => {
     const data = sample();
     const { user } = renderApp('invest', data);
     await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
-    await user.click(screen.getByRole('button', { name: /record the purchase/ }));
+    await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
     const dialog = screen.getByRole('dialog', { name: 'Record the purchase' });
     await user.click(within(dialog).getByRole('button', { name: 'Record purchase' }));
 
@@ -76,6 +76,13 @@ describe('InvestPage', () => {
     expect(kidsCash.newMoneyIls).toBe(1000);
     expect(kids.cashIls).toBeCloseTo(250 + 1000 - kidsCash.spentIls, 4);
     expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
+
+    // A mistake can be undone right away.
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await user.click(screen.getByRole('button', { name: 'Undo purchase' }));
+    expect(screen.queryByText(/Purchase recorded/)).not.toBeInTheDocument();
+    await waitFor(() => expect(savedData().transactions).toHaveLength(0));
+    expect(savedData().categories.find((c) => c.id === 'sample-kids')!.cashIls).toBeCloseTo(250, 6);
   });
 
   it('asks for missing prices before calculating', async () => {
@@ -140,7 +147,7 @@ describe('InvestPage', () => {
     expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('5,500');
     expect(orderRows()).toEqual(planned);
 
-    await user.click(screen.getByRole('button', { name: /record the purchase/ }));
+    await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
     const dialog = screen.getByRole('dialog');
     for (const row of planned) expect(within(dialog).getByText(row.split(' ')[0])).toBeInTheDocument();
 
@@ -195,7 +202,7 @@ describe('InvestPage', () => {
   it('records something different from the recommendation, including an added stock', async () => {
     const { user } = renderApp('invest', sample());
     await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
-    await user.click(screen.getByRole('button', { name: /record the purchase/ }));
+    await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
     const dialog = screen.getByRole('dialog', { name: 'Record the purchase' });
     await user.click(within(dialog).getByLabelText('I bought something different'));
     for (const input of within(dialog).getAllByLabelText(/^Shares of .* bought$/)) {

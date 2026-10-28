@@ -14,7 +14,8 @@
    few transactions as possible). It shows how much ILS to convert to USD.
 3. **Record the purchase.** After placing the orders, the user records what was actually bought
    (shares, price, FX rate). Shares are attributed to categories, cash leftovers stay with their
-   category, and the purchase goes into the history (and can be undone).
+   category, and the purchase is kept (shown per category, and in a list of all purchases where it
+   can be undone).
 
 Buy-only: the app never suggests selling.
 
@@ -164,6 +165,16 @@ Everything is stored in the browser's `localStorage` (key `stockbalance:data`) a
 (versioned, validated with zod on load and on import). Backup = download the JSON; restore =
 import the JSON file. Nothing is sent anywhere except price/FX requests (ticker symbols only).
 
+Where the device can share files (phones), the backup can also go through the share sheet (Drive,
+iCloud, email…). Some browsers share only plain-text files, so it is then the same JSON named
+`.txt`; restore accepts both. *Back up now* uses the share sheet on touch devices and a download
+elsewhere.
+
+The browser remembers its last backup (`stockbalance:backup`: time, a fingerprint of the
+categories, purchases and settings, and the newest purchase's id — not part of `AppData`). The
+Portfolio page shows a reminder when there is data and no backup yet, when purchases changed since
+the last backup, or when it is 30 days old and anything else changed. *Later* hides it for 7 days.
+
 ## Prices and FX
 
 - Yahoo Finance chart API via the local Vite proxy (`/api/yahoo/v8/finance/chart/{symbol}`),
@@ -202,16 +213,26 @@ together. Shares are buys minus sells; non-USD rows are skipped.
 
 A category's targets can include a group, e.g. "Corporates" 5% with AMZN and TSLA. It is stored as
 ordinary per-stock targets with a `group` label (AMZN 2.5% and TSLA 2.5%, both `group: "Corporates"`):
-the group's percent is split equally between its stocks, so the calculation needs no special case.
-The group label is only used for editing and display (a combined row on the Portfolio page).
+the group's percent is split equally between its stocks.
+
+In the plan a group is balanced as one unit. Step 1 water-fills the category's single stocks and
+groups (a group's weight is its total target, its value that of all its stocks together); a group's
+money is then water-filled between its allowed stocks, so it goes to those furthest below their part.
+So a group at or above its target gets nothing, even when one of its stocks is below its own target.
+In the top-up, a category pays for a share of a grouped stock only while it is below target for both
+the stock (its part of the group's target among the allowed stocks) and the whole group, at most
+2 × the smaller gap, and the objective change counts both. In the balance objective `E` (and the
+tests' invariants) a group is one term.
 
 ## Skipping stocks in a purchase
 
 On the Invest page the user can untick stocks in the orders list (`PlanOptions.excludeTickers`).
-For each category, an excluded stock's target is dropped and the remaining targets are scaled up
-proportionally, so the money that would have gone to it is spread over the category's other stocks
-(the cap at the target value then applies to these scaled targets). A category whose stocks are all
-excluded keeps its budget as cash.
+An excluded stock in a group leaves its target to the group's other stocks: the group keeps its
+target, and the excluded stock's holdings still count toward it. Otherwise (or when all of a group's
+stocks are excluded) the excluded target is dropped and the category's remaining targets are scaled
+up proportionally, so the money that would have gone to it is spread over the other stocks (the cap
+at the target value then applies to these scaled targets). A category whose stocks are all excluded
+keeps its budget as cash.
 
 ## Recording what was actually bought
 
@@ -219,3 +240,12 @@ When recording, the user chooses "I bought exactly what was recommended" (the pl
 is) or "I bought something different": shares and prices of the recommended orders can be changed
 (0 = not bought), and stocks that weren't recommended can be added, each for one chosen category
 (`ExecutedPurchase.orders[].categoryId`).
+
+## Pages
+
+Portfolio (all categories, the broker view and all purchases with undo), Invest, Categories (the
+list and their setup) and Settings. Each category also has its own page (`#/category/<id>`): its
+value and cash, its stocks now vs target as two donuts (now and target, same color per stock, at
+most six slices with the smallest folded into "Other") with a legend and the full table, and its
+purchases. There is no separate history page: purchases show per category, and the full list is on
+the Portfolio page.

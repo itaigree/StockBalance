@@ -1,39 +1,44 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export type Page = 'portfolio' | 'invest' | 'history' | 'categories' | 'settings';
+export type Page = 'portfolio' | 'invest' | 'categories' | 'settings';
 
+/** The main tabs. */
 export const PAGES: { id: Page; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'invest', label: 'Invest' },
-  { id: 'history', label: 'History' },
   { id: 'categories', label: 'Categories' },
   { id: 'settings', label: 'Settings' },
 ];
 
-function pageFromHash(hash: string): Page {
-  const id = hash.replace(/^#\/?/, '');
-  return PAGES.some((p) => p.id === id) ? (id as Page) : 'portfolio';
+/** Where the app is: a main page, or one category's own page (under Categories). */
+export type Route = { page: Page } | { page: 'category'; categoryId: string };
+
+export function routeFromHash(hash: string): Route {
+  const path = hash.replace(/^#\/?/, '');
+  const m = /^category\/(.+)$/.exec(path);
+  if (m) return { page: 'category', categoryId: decodeURIComponent(m[1]) };
+  return { page: PAGES.some((p) => p.id === path) ? (path as Page) : 'portfolio' };
 }
 
-/** Current page (from the URL hash, e.g. "#/invest") and a function to go to another page. */
-export function usePage(): [Page, (page: Page) => void] {
-  const [page, setPage] = useState<Page>(() => pageFromHash(window.location.hash));
+/** The current route, following changes of the URL hash (e.g. "#/invest", "#/category/abc"). */
+export function useRoute(): Route {
+  const [route, setRoute] = useState<Route>(() => routeFromHash(window.location.hash));
 
   useEffect(() => {
-    const onHash = () => setPage(pageFromHash(window.location.hash));
+    const onHash = () => setRoute(routeFromHash(window.location.hash));
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const navigate = useCallback((next: Page) => {
-    window.location.hash = `#/${next}`;
-    window.scrollTo?.(0, 0);
-  }, []);
-
-  return [page, navigate];
+  return route;
 }
 
-/** Navigate without the hook (for buttons deep in the tree). */
+/** Link to a category's own page. */
+export function categoryHref(categoryId: string): string {
+  return `#/category/${encodeURIComponent(categoryId)}`;
+}
+
+/** Go to another page (for buttons deep in the tree). */
 export function navigateTo(page: Page): void {
   window.location.hash = `#/${page}`;
   window.scrollTo?.(0, 0);

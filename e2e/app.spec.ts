@@ -37,11 +37,11 @@ test('create a category, with validation', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Kids' })).toContainText('$900.00'); // 3 × $300
 });
 
-test('invest, record, check holdings and history, undo', async ({ page }) => {
+test('invest, record, check holdings and the category page, undo', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Load sample data' }).click();
   await expect(page.getByText('3.6512')).toBeVisible();
-  await page.getByRole('link', { name: 'Invest' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Invest' }).click();
   await page.getByLabel('Amount to invest in ILS').fill('10000');
 
   const orders = page.getByRole('region', { name: 'Orders to place' });
@@ -58,7 +58,7 @@ test('invest, record, check holdings and history, undo', async ({ page }) => {
   expect(new Set(Object.keys(planned)).size).toBe(count);
   for (const n of Object.values(planned)) expect(Number.isInteger(n)).toBe(true);
 
-  await page.getByRole('button', { name: /record the purchase/ }).click();
+  await page.getByRole('button', { name: 'I made a purchase' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Record purchase' }).click();
   await expect(page.getByText(/Purchase recorded/)).toBeVisible();
 
@@ -70,11 +70,20 @@ test('invest, record, check holdings and history, undo', async ({ page }) => {
     expect(total).toBeCloseTo(before + shares, 6);
   }
 
-  await page.getByRole('button', { name: 'See it in History' }).click();
+  // The purchase shows on the category's own page…
+  await page.getByRole('link', { name: 'Portfolio' }).click();
+  await page.getByRole('link', { name: 'Kids' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Kids' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Kids purchases' }).locator('tbody tr')).toHaveCount(1);
+  await expect(page.getByRole('img', { name: /^Now: VOO/ })).toBeVisible();
+
+  // …and can be undone from "All purchases" on the Portfolio page.
+  await page.getByRole('link', { name: 'Portfolio' }).click();
+  await page.getByText('All purchases').click();
   await expect(page.getByRole('article')).toHaveCount(1);
   await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('button', { name: 'Undo purchase' }).click();
-  await expect(page.getByText(/No purchases recorded yet/)).toBeVisible();
+  await expect(page.getByText('None recorded yet')).toBeVisible();
   const reverted = await page.evaluate(() => JSON.parse(localStorage.getItem('stockbalance:data')!));
   expect(reverted.categories.find((c: { id: string }) => c.id === 'sample-pension').holdings).toEqual({ VOO: 40, VXUS: 150, BND: 60 });
   expect(reverted.categories.find((c: { id: string }) => c.id === 'sample-kids').cashIls).toBeCloseTo(250, 6);
@@ -109,7 +118,7 @@ test('works on a phone-sized screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('button', { name: 'Load sample data' }).click();
-  await page.getByRole('link', { name: 'Invest' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Invest' }).click();
   await page.getByLabel('Amount to invest in ILS').fill('10000');
   await expect(page.getByRole('region', { name: 'Orders to place' })).toBeVisible();
   // Nothing makes the whole page scroll sideways.

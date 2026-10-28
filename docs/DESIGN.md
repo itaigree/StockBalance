@@ -185,3 +185,15 @@ chooses, per portfolio, an existing category (its holdings are replaced; targets
 kept), a new category (name editable; defaults to the portfolio name), or "don't import". The
 default is the category with the same name, if any. Portfolios sent to the same category are added
 together. Shares are buys minus sells; non-USD rows are skipped.
+
+## Merging and splitting categories (`mergeCategories`, `splitCategory`)
+
+- **Merge** two categories: holdings and cash are added; the targets, money rule, color and place
+  in the list of the category the user chooses are kept, and the other category is removed. Past
+  purchases of the removed category are re-pointed to the kept one (entries that then collide are
+  added together), so the per-category history and undo stay correct.
+- **Split** a category: the user chooses how many shares of each stock and how much cash (up to what
+  it has) move to a new category, placed right after it, optionally with a copy of its targets;
+  the new category's money rule starts as "nothing by default". Past purchases stay with the
+  original category.
+- Both clear the saved Invest plan, which may refer to the old categories.

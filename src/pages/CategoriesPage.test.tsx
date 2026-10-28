@@ -82,4 +82,50 @@ describe('CategoriesPage', () => {
     expect(within(preview).getByText('₪1,000.00')).toBeInTheDocument();
     expect(within(preview).getByText('₪2,700.00')).toBeInTheDocument();
   });
+
+  it('merges two categories', async () => {
+    const { user } = renderApp('categories', sample());
+    await user.click(screen.getAllByRole('button', { name: 'Merge' })[1]); // Kids
+    const dialog = screen.getByRole('dialog', { name: 'Merge Kids' });
+    await user.selectOptions(within(dialog).getByLabelText('Merge with'), 'sample-pension');
+    await user.click(within(dialog).getByLabelText('Pension'));
+    expect(within(dialog).getByLabelText('Name of the merged category')).toHaveValue('Pension');
+    expect(within(dialog).getByText(/will own/)).toHaveTextContent('43.5 VOO');
+    await user.click(within(dialog).getByRole('button', { name: 'Merge' }));
+    expect(screen.getByText(/were merged into Pension/)).toBeInTheDocument();
+    await waitFor(() => {
+      const cats = savedData().categories;
+      expect(cats.map((c) => c.name)).toEqual(['Pension', 'Investments']);
+      expect(cats[0].holdings).toEqual({ VOO: 43.5, VXUS: 150, BND: 65 });
+      expect(cats[0].cashIls).toBe(250);
+      expect(cats[0].targets).toEqual(sample().categories[0].targets);
+    });
+  });
+
+  it('splits part of a category into a new one', async () => {
+    const { user } = renderApp('categories', sample());
+    await user.click(screen.getAllByRole('button', { name: 'Split' })[0]); // Pension
+    const dialog = screen.getByRole('dialog', { name: 'Split Pension' });
+    const split = within(dialog).getByRole('button', { name: 'Split' });
+    expect(split).toBeDisabled();
+    await user.type(within(dialog).getByLabelText('Name of the new category'), 'Pension 2');
+    await user.click(within(dialog).getByRole('button', { name: 'Move this % of everything' }));
+    expect(within(dialog).getByLabelText('Shares of VOO to move')).toHaveValue('20');
+    await user.clear(within(dialog).getByLabelText('Shares of BND to move'));
+    await user.type(within(dialog).getByLabelText('Shares of BND to move'), '100');
+    expect(within(dialog).getByText('Only 60 to move.')).toBeInTheDocument();
+    expect(split).toBeDisabled();
+    await user.clear(within(dialog).getByLabelText('Shares of BND to move'));
+    await user.type(within(dialog).getByLabelText('Shares of BND to move'), '10');
+    await user.click(split);
+    await waitFor(() => {
+      const cats = savedData().categories;
+      expect(cats.map((c) => c.name)).toEqual(['Pension', 'Pension 2', 'Kids', 'Investments']);
+      expect(cats[0].holdings).toEqual({ VOO: 20, VXUS: 75, BND: 50 });
+      expect(cats[1].holdings).toEqual({ VOO: 20, VXUS: 75, BND: 10 });
+      expect(cats[1].targets).toEqual(cats[0].targets);
+      expect(cats[1].contribution).toEqual({ kind: 'none' });
+    });
+  });
 });
+

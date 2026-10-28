@@ -5,6 +5,7 @@ import { useApp } from '../state/AppState';
 import { fmtIls, fmtPercent, fmtShares, isZeroMoney } from '../lib/format';
 import { describeRule } from '../lib/rules';
 import { CategoryEditor } from '../components/CategoryEditor';
+import { MergeModal, SplitModal } from '../components/MergeSplitModals';
 import { Modal } from '../components/Modal';
 import { NumberField } from '../components/NumberField';
 import './CategoriesPage.css';
@@ -13,6 +14,9 @@ export function CategoriesPage() {
   const { data, actions } = useApp();
   const [editing, setEditing] = useState<Category | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Category | null>(null);
+  const [merging, setMerging] = useState<Category | null>(null);
+  const [splitting, setSplitting] = useState<Category | null>(null);
+  const [done, setDone] = useState<string | null>(null);
 
   return (
     <>
@@ -25,6 +29,12 @@ export function CategoriesPage() {
           Add category
         </button>
       </div>
+
+      {done && (
+        <div className="banner info" role="status">
+          {done}
+        </div>
+      )}
 
       {data.categories.length === 0 ? (
         <section className="card empty">
@@ -82,6 +92,18 @@ export function CategoriesPage() {
                   <button type="button" className="secondary small" onClick={() => setEditing(c)}>
                     Edit
                   </button>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={() => setMerging(c)}
+                    disabled={data.categories.length < 2}
+                    title="Combine with another category"
+                  >
+                    Merge
+                  </button>
+                  <button type="button" className="secondary small" onClick={() => setSplitting(c)} title="Move part of it into a new category">
+                    Split
+                  </button>
                   <button type="button" className="secondary small" onClick={() => setDeleting(c)}>
                     Delete
                   </button>
@@ -93,6 +115,28 @@ export function CategoriesPage() {
       )}
 
       {data.categories.length > 0 && <SplitPreview />}
+
+      {merging && (
+        <MergeModal
+          category={merging}
+          onClose={() => setMerging(null)}
+          onDone={(msg) => {
+            setMerging(null);
+            setDone(msg);
+          }}
+        />
+      )}
+
+      {splitting && (
+        <SplitModal
+          category={splitting}
+          onClose={() => setSplitting(null)}
+          onDone={(msg) => {
+            setSplitting(null);
+            setDone(msg);
+          }}
+        />
+      )}
 
       {editing && (
         <CategoryEditor

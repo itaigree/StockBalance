@@ -3,13 +3,15 @@ import userEvent from '@testing-library/user-event';
 import type { AppData } from './types';
 import { App } from './App';
 import { AppStateProvider } from './state/AppState';
-import type { Page } from './lib/router';
 import { emptyData } from './data/schema';
 import { sampleData } from './data/sample';
 
-/** Render the whole app on a page with the given data (no storage load, no start-up refresh). */
-export function renderApp(page: Page, data: AppData = emptyData()) {
-  window.location.hash = `#/${page}`;
+/**
+ * Render the whole app at a route (e.g. "invest" or "category/sample-kids") with the given data
+ * (no storage load, no start-up refresh).
+ */
+export function renderApp(route: string, data: AppData = emptyData()) {
+  window.location.hash = `#/${route}`;
   const user = userEvent.setup();
   const utils = render(
     <AppStateProvider initialData={data}>

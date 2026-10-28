@@ -9,6 +9,8 @@ import './CategoryEditor.css';
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 interface Row {
   key: string;
   ticker: string;
@@ -184,6 +186,31 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     // Its stocks stay in the category (as held stocks without a target).
     setRows((rs) => rs.map((r) => (r.group === key ? { ...r, group: undefined } : r)));
   };
+  /**
+   * Move a stock into a group, out of it, or to another group. Its part of the targets moves with
+   * it (its own target, or its equal part of its group's), so the total stays the same.
+   */
+  const moveRow = (r: Row, to: string | undefined) => {
+    if (r.group === to) return;
+    const from = groups.find((g) => g.key === r.group);
+    const share = from
+      ? r.ticker.trim() && (from.percent ?? 0) > 0
+        ? round2(from.percent! / Math.max(1, filledMembers(from).length))
+        : 0
+      : (r.percent ?? 0);
+    if (share > 0) {
+      setGroups((gs) =>
+        gs.map((g) =>
+          g.key === from?.key
+            ? { ...g, percent: round2((g.percent ?? 0) - share) }
+            : g.key === to
+              ? { ...g, percent: round2((g.percent ?? 0) + share) }
+              : g,
+        ),
+      );
+    }
+    updateRow(r.key, { group: to, percent: to ? null : share > 0 ? share : null });
+  };
 
   const save = () => {
     setSubmitted(true);
@@ -241,6 +268,21 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           spellCheck={false}
           onChange={(e) => updateRow(r.key, { ticker: e.target.value.toUpperCase() })}
         />
+        {groups.length > 0 && (
+          <select
+            className="group-select"
+            value={r.group ?? ''}
+            aria-label={`Group, row ${i + 1}`}
+            onChange={(e) => moveRow(r, e.target.value || undefined)}
+          >
+            <option value="">No group</option>
+            {groups.map((g, gi) => (
+              <option key={g.key} value={g.key}>
+                {g.name.trim() || `Group ${gi + 1}`}
+              </option>
+            ))}
+          </select>
+        )}
         {show(errors.rows[r.key])}
       </td>
       <td className="num">
@@ -327,7 +369,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           <p className="hint">
             For each stock, set the share of this category it should be (target) and how many shares this category owns now. A
             stock with no target is kept but never bought. A group (e.g. "Corporates" 5% with AMZN, TSLA…) shares one target
-            equally between its stocks.
+            equally between its stocks. To move a stock into or out of a group, choose it in the menu under the stock;
+            its target moves with it.
           </p>
           <div className="table-wrap">
             <table className="stock-rows">

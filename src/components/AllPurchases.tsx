@@ -1,58 +1,29 @@
 import { useState } from 'react';
 import type { Category, Transaction } from '../types';
 import { useApp } from '../state/AppState';
-import { navigateTo } from '../lib/router';
 import { fmtDate, fmtIls, fmtRate, fmtShares, fmtUsd, isZeroMoney } from '../lib/format';
-import { CategoryPurchases } from '../components/CategoryPurchases';
-import { Modal } from '../components/Modal';
-import './HistoryPage.css';
+import { Modal } from './Modal';
+import './AllPurchases.css';
 
-export function HistoryPage() {
+/** Every recorded purchase, newest first, each with its orders, per-category details and Undo. */
+export function AllPurchases() {
   const { data, actions } = useApp();
   const [undoing, setUndoing] = useState<Transaction | null>(null);
-  /** 'all' = every purchase; otherwise a category id. */
-  const [view, setView] = useState<string>('all');
   const byId = new Map(data.categories.map((c) => [c.id, c]));
   const transactions = [...data.transactions].reverse();
 
   return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>History</h1>
-          <p className="muted">
-            {view === 'all' ? 'Every purchase you recorded, newest first.' : 'What this category got from each purchase, oldest first.'}
-          </p>
-        </div>
-      </div>
-
-      {transactions.length > 0 && data.categories.length > 0 && (
-        <div className="view-tabs" role="tablist" aria-label="Show">
-          {[{ id: 'all', name: 'All purchases', color: '' }, ...data.categories].map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              role="tab"
-              aria-selected={view === c.id}
-              className={`small ${view === c.id ? '' : 'secondary'}`}
-              onClick={() => setView(c.id)}
-            >
-              {c.color && <span className="dot" style={{ background: c.color }} />}
-              {c.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {view !== 'all' && byId.has(view) ? (
-        <CategoryPurchases category={byId.get(view)!} transactions={data.transactions} />
-      ) : transactions.length === 0 ? (
-        <section className="card empty">
-          <p>No purchases recorded yet. After you buy, record the purchase on the Invest page and it will show up here.</p>
-          <button type="button" onClick={() => navigateTo('invest')}>
-            Go to Invest
-          </button>
-        </section>
+    <details className="card all-purchases">
+      <summary>
+        <h2>All purchases</h2>
+        <span className="muted small-text">
+          {transactions.length === 0
+            ? 'None recorded yet'
+            : `${transactions.length} recorded, newest first — check them or undo a mistake`}
+        </span>
+      </summary>
+      {transactions.length === 0 ? (
+        <p className="muted">After you buy, record the purchase on the Invest page and it will show up here.</p>
       ) : (
         transactions.map((tx) => <TransactionCard key={tx.id} tx={tx} byId={byId} onUndo={() => setUndoing(tx)} />)
       )}
@@ -68,7 +39,7 @@ export function HistoryPage() {
           }}
         />
       )}
-    </>
+    </details>
   );
 }
 
@@ -78,7 +49,7 @@ function TransactionCard({ tx, byId, onUndo }: { tx: Transaction; byId: Map<stri
   const categoryIds = [...new Set([...tx.cash.map((c) => c.categoryId), ...tx.allocations.map((a) => a.categoryId)])];
 
   return (
-    <article className="card tx-card" aria-label={`Purchase on ${fmtDate(tx.date)}`}>
+    <article className="tx-card" aria-label={`Purchase on ${fmtDate(tx.date)}`}>
       <div className="card-header">
         <div>
           <h2>{fmtDate(tx.date)}</h2>
@@ -159,7 +130,7 @@ function TransactionCard({ tx, byId, onUndo }: { tx: Transaction; byId: Map<stri
   );
 }
 
-function UndoModal({
+export function UndoModal({
   tx,
   categories,
   onClose,
@@ -196,7 +167,7 @@ function UndoModal({
     >
       <p>
         The shares it added will be removed from your categories, its cash changes reversed, and it will be deleted from
-        History. Use this if you recorded something by mistake.
+        the list of purchases. Use this if you recorded something by mistake.
       </p>
       {short.length > 0 && (
         <div className="banner warn">

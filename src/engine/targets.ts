@@ -2,15 +2,17 @@ import type { Category } from '../types';
 
 /**
  * A category's targets with duplicate tickers merged (percents summed) and non-positive or invalid
- * percents dropped, in first-appearance order. `sum` is the total of the remaining percents.
+ * percents dropped, in first-appearance order. A ticker keeps the group of its first appearance.
  */
-export function mergedTargets(category: Pick<Category, 'targets'>): { ticker: string; percent: number }[] {
-  const merged = new Map<string, number>();
+export function mergedTargets(category: Pick<Category, 'targets'>): { ticker: string; percent: number; group?: string }[] {
+  const merged = new Map<string, { percent: number; group?: string }>();
   for (const t of category.targets) {
     if (!(Number.isFinite(t.percent) && t.percent > 0)) continue;
-    merged.set(t.ticker, (merged.get(t.ticker) ?? 0) + t.percent);
+    const m = merged.get(t.ticker);
+    if (m) m.percent += t.percent;
+    else merged.set(t.ticker, { percent: t.percent, ...(t.group ? { group: t.group } : {}) });
   }
-  return [...merged].map(([ticker, percent]) => ({ ticker, percent }));
+  return [...merged].map(([ticker, m]) => ({ ticker, ...m }));
 }
 
 /** Sum of a category's (merged, positive) target percents. */

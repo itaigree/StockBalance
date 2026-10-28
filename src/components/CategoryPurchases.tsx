@@ -1,6 +1,7 @@
 import type { Category, Transaction } from '../types';
 import { categoryPurchaseSummary } from '../engine';
 import { fmtDate, fmtIls, fmtRate, fmtShares, fmtUsd } from '../lib/format';
+import './CategoryPurchases.css';
 
 /** One category's purchases as a table (one row per purchase) with totals, like a hand-kept spreadsheet. */
 export function CategoryPurchases({ category, transactions }: { category: Category; transactions: Transaction[] }) {

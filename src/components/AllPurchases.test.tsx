@@ -30,15 +30,23 @@ function withPurchase(): { before: AppData; after: AppData } {
   return { before, after: { ...before, categories: applyTransaction(before.categories, tx), transactions: [tx] } };
 }
 
-describe('HistoryPage', () => {
-  it('shows an empty state', () => {
-    renderApp('history', sample());
-    expect(screen.getByText(/No purchases recorded yet/)).toBeInTheDocument();
+/** Render the Portfolio page and open its "All purchases" card. */
+async function openPurchases(data: AppData) {
+  const r = renderApp('portfolio', data);
+  await r.user.click(screen.getByText('All purchases'));
+  return r;
+}
+
+describe('All purchases (Portfolio page)', () => {
+  it('shows when there are none yet', async () => {
+    await openPurchases(sample());
+    expect(screen.getByText('None recorded yet')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'History' })).not.toBeInTheDocument();
   });
 
   it('lists purchases with their orders and per-category details', async () => {
     const { after } = withPurchase();
-    const { user } = renderApp('history', after);
+    const { user } = await openPurchases(after);
     const card = screen.getByRole('article');
     expect(within(card).getByText('October deposit')).toBeInTheDocument();
     for (const o of after.transactions[0].orders) expect(within(card).getAllByText(o.ticker).length).toBeGreaterThan(0);
@@ -49,10 +57,10 @@ describe('HistoryPage', () => {
 
   it('undoes a purchase after confirmation', async () => {
     const { before, after } = withPurchase();
-    const { user } = renderApp('history', after);
+    const { user } = await openPurchases(after);
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     await user.click(screen.getByRole('button', { name: 'Undo purchase' }));
-    expect(screen.getByText(/No purchases recorded yet/)).toBeInTheDocument();
+    expect(screen.getByText('None recorded yet')).toBeInTheDocument();
     await waitFor(() => expect(savedData().transactions).toEqual([]));
     const restored = savedData().categories;
     restored.forEach((c, i) => {
@@ -64,15 +72,16 @@ describe('HistoryPage', () => {
   it('warns when holdings were edited since the purchase', async () => {
     const { after } = withPurchase();
     const data = { ...after, categories: after.categories.map((c) => ({ ...c, holdings: {} })) };
-    const { user } = renderApp('history', data);
+    const { user } = await openPurchases(data);
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.getByText(/now own fewer shares than the purchase gave them/)).toBeInTheDocument();
   });
+});
 
-  it('shows one category’s purchases as a table with totals', async () => {
+describe('a category’s purchases (its own page)', () => {
+  it('shows them as a table with totals', () => {
     const { after } = withPurchase();
-    const { user } = renderApp('history', after);
-    await user.click(screen.getByRole('tab', { name: 'Kids' }));
+    renderApp('category/sample-kids', after);
     const table = screen.getByRole('region', { name: 'Kids purchases' });
     const body = within(table).getAllByRole('row');
     // header, one purchase, total
@@ -83,8 +92,5 @@ describe('HistoryPage', () => {
     const spent = kidsAlloc.reduce((sum, a) => sum + a.costUsd, 0);
     expect(within(body[2]).getByText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(spent))).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Kids totals' })).toHaveTextContent('Left over');
-    await user.click(screen.getByRole('tab', { name: 'All purchases' }));
-    expect(screen.getByRole('article')).toBeInTheDocument();
   });
 });
-

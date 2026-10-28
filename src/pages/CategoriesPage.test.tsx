@@ -167,6 +167,65 @@ describe('CategoriesPage', () => {
     expect(within(again).getByLabelText('Group target percent, group 1')).toHaveValue('20');
   });
 
+  it('moves a stock into and out of a group, taking its target with it', async () => {
+    const data = sample();
+    data.categories[0] = {
+      ...data.categories[0],
+      targets: [
+        { ticker: 'VOO', percent: 70 },
+        { ticker: 'NVDA', percent: 10 },
+        { ticker: 'AMZN', percent: 10, group: 'Corp' },
+        { ticker: 'TSLA', percent: 10, group: 'Corp' },
+      ],
+      holdings: { VOO: 40 },
+    };
+    const { user } = renderApp('categories', data);
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const dialog = screen.getByRole('dialog');
+    const groupTarget = within(dialog).getByLabelText('Group target percent, group 1');
+
+    // NVDA (10%) joins Corp: the group grows to 30%, 10% each.
+    await user.selectOptions(within(dialog).getByLabelText('Group, row 2'), 'Corp');
+    expect(groupTarget).toHaveValue('30');
+    expect(within(dialog).getByText('10% each')).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Target percent, row 2')).not.toBeInTheDocument();
+
+    // TSLA leaves Corp with its 10%.
+    await user.selectOptions(within(dialog).getByLabelText('Group, row 4'), 'No group');
+    expect(groupTarget).toHaveValue('20');
+    expect(within(dialog).getByLabelText('Target percent, row 4')).toHaveValue('10');
+    expect(within(dialog).getByText('Targets add up to 100%')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() =>
+      expect(savedData().categories[0].targets).toEqual([
+        { ticker: 'VOO', percent: 70 },
+        { ticker: 'TSLA', percent: 10 },
+        { ticker: 'NVDA', percent: 10, group: 'Corp' },
+        { ticker: 'AMZN', percent: 10, group: 'Corp' },
+      ]),
+    );
+  });
+
+  it('keeps the total when a stock leaves a group that does not split evenly', async () => {
+    const data = sample();
+    data.categories[0] = {
+      ...data.categories[0],
+      targets: [
+        { ticker: 'VOO', percent: 90 },
+        ...['A', 'B', 'C'].map((ticker) => ({ ticker, percent: 10 / 3, group: 'G' })),
+      ],
+      holdings: {},
+    };
+    const { user } = renderApp('categories', data);
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const dialog = screen.getByRole('dialog');
+    await user.selectOptions(within(dialog).getByLabelText('Group, row 2'), 'No group');
+    expect(within(dialog).getByLabelText('Target percent, row 2')).toHaveValue('3.33');
+    expect(within(dialog).getByLabelText('Group target percent, group 1')).toHaveValue('6.67');
+    expect(within(dialog).getByText('Targets add up to 100%')).toBeInTheDocument();
+  });
+
   it('validates groups', async () => {
     const { user } = renderApp('categories');
     await user.click(screen.getByRole('button', { name: 'Add your first category' }));

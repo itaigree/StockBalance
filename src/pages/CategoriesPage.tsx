@@ -3,6 +3,7 @@ import type { Category } from '../types';
 import { splitContribution } from '../engine';
 import { useApp } from '../state/AppState';
 import { fmtIls, fmtPercent, fmtShares, isZeroMoney } from '../lib/format';
+import { categoryHref } from '../lib/router';
 import { describeRule } from '../lib/rules';
 import { targetItems } from '../lib/targetGroups';
 import { CategoryEditor } from '../components/CategoryEditor';
@@ -55,7 +56,9 @@ export function CategoriesPage() {
                 <div className="category-info">
                   <h2 className="row">
                     <span className="dot" style={{ background: c.color }} />
-                    {c.name}
+                    <a href={categoryHref(c.id)} className="title-link">
+                      {c.name} <span aria-hidden="true">›</span>
+                    </a>
                   </h2>
                   <div className="muted small-text">{describeRule(c.contribution)}</div>
                   <div className="targets-summary">

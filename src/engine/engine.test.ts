@@ -311,6 +311,48 @@ describe('planPurchase', () => {
     expect(plan.warnings.join(' ')).toMatch(/p: all its stocks are excluded/);
   });
 
+  describe('groups of stocks', () => {
+    // VOO 80%, "Corp" 20% split equally between AMZN and TSLA.
+    const grouped = (holdings: Record<string, number>): Category => ({
+      ...cat('p', {}, holdings),
+      targets: [
+        { ticker: 'VOO', percent: 80 },
+        { ticker: 'AMZN', percent: 10, group: 'Corp' },
+        { ticker: 'TSLA', percent: 10, group: 'Corp' },
+      ],
+    });
+
+    it('buys nothing in a group that is already above its target, even a stock below its own', () => {
+      // Corp holds 300 of a final 1100 (27%, target 20%); TSLA alone is at 0% (target 10%).
+      const c = grouped({ VOO: 700, AMZN: 300 });
+      expect(sharesOf(planPurchase(input([c], { VOO: 1, AMZN: 1, TSLA: 1 }, { p: 100 })), 'p')).toEqual({ VOO: 100 });
+    });
+
+    it('does not spend leftovers on a stock of a group that is above its target', () => {
+      // 3 × VOO @ 30 leaves 10, which would buy 2 × TSLA @ 5 if TSLA were on its own.
+      const c = grouped({ VOO: 20, AMZN: 300 });
+      const plan = planPurchase(input([c], { VOO: 30, AMZN: 1, TSLA: 5 }, { p: 100 }, { wholeShares: true }));
+      expect(orderMap(plan)).toEqual({ VOO: 3 });
+    });
+
+    it('balances the group as a whole, then gives its money to its stocks furthest below', () => {
+      // Corp is 150 of a final 1000 (target 200): its 50 goes to TSLA, AMZN is already above its half.
+      const c = grouped({ VOO: 800, AMZN: 150 });
+      expect(sharesOf(planPurchase(input([c], { VOO: 1, AMZN: 1, TSLA: 1 }, { p: 50 })), 'p')).toEqual({ TSLA: 50 });
+    });
+
+    it('gives an excluded stock’s share to the rest of its group, counting what it already holds', () => {
+      const prices = { VOO: 1, AMZN: 1, TSLA: 1 };
+      const plan = planPurchase(input([grouped({ VOO: 800, AMZN: 100 })], prices, { p: 100 }, { excludeTickers: ['TSLA'] }));
+      expect(sharesOf(plan, 'p')).toEqual({ AMZN: 100 });
+      // TSLA's 200 still counts toward Corp's 220 target, so AMZN only gets the last 20.
+      const plan2 = planPurchase(input([grouped({ VOO: 800, TSLA: 200 })], prices, { p: 100 }, { excludeTickers: ['TSLA'] }));
+      const buys = sharesOf(plan2, 'p');
+      expect(buys.VOO).toBeCloseTo(80, 9);
+      expect(buys.AMZN).toBeCloseTo(20, 9);
+    });
+  });
+
   it('returns errors instead of orders for invalid input', () => {
     const c = cat('p', { A: 100 });
     expect(planPurchase({ ...input([c], { A: 1 }, { p: 10 }), usdIls: 0 }).errors).toHaveLength(1);

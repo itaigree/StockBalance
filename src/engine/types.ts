@@ -41,8 +41,9 @@ export interface PlanOptions {
   /** null = no limit. */
   maxTickers: number | null;
   /**
-   * Stocks the user doesn't want to buy this time. Their target share is spread over each
-   * category's other target stocks (in proportion to their targets), so the money goes to the rest.
+   * Stocks the user doesn't want to buy this time. A stock in a group leaves its target share to the
+   * group's other stocks; otherwise its share is spread over the category's other targets (in
+   * proportion to their targets), so the money goes to the rest.
    */
   excludeTickers?: string[];
 }

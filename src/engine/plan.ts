@@ -18,8 +18,21 @@ interface Cat {
   weights: Map<string, number>;
   /** Current value (USD) of each target ticker. */
   values: Map<string, number>;
+  /** Groups of stocks balanced as one: see docs/DESIGN.md, "Stock groups". */
+  groups: Map<string, Group>;
+  /** Group name of each target ticker that is in a group. */
+  groupOf: Map<string, string>;
   /** Value after investing the whole budget: all priced holdings + budget (T_c). */
   total: number;
+}
+
+interface Group {
+  /** Target tickers in the group (not excluded this time). */
+  members: string[];
+  /** Target fraction of the whole group. */
+  weight: number;
+  /** Current value (USD) of the whole group, including stocks excluded this time. */
+  value: number;
 }
 
 /** Per category: ticker → dollars (ideal buys) or ticker → shares (rounded buys). */
@@ -86,12 +99,29 @@ export function planPurchase(input: PlanInput): PlanResult {
   const excluded = new Set(options.excludeTickers ?? []);
   const cats: Cat[] = categories.map((c, i) => {
     const budgetUsd = budgetsIlsList[i] / rate;
-    // Excluded stocks are left out and the remaining targets are scaled up to fill their share.
-    const targets = mergedTargets(c).filter((t) => !excluded.has(t.ticker));
-    const tsum = targets.reduce((a, t) => a + t.percent, 0);
-    const weights = new Map(targets.map((t) => [t.ticker, t.percent / tsum]));
-    const values = new Map(targets.map((t) => [t.ticker, (c.holdings[t.ticker] ?? 0) * (validPrice(prices, t.ticker) ?? 0)]));
-    return { category: c, budgetUsd, weights, values, total: before[i].investedUsd + budgetUsd };
+    const valueOf = (t: string) => (c.holdings[t] ?? 0) * (validPrice(prices, t) ?? 0);
+    const all = mergedTargets(c);
+    const targets = all.filter((t) => !excluded.has(t.ticker));
+    const groupSum = (list: typeof all, g: string) => list.reduce((a, t) => (t.group === g ? a + t.percent : a), 0);
+    // An excluded stock in a group leaves its share to the group's other stocks, so the group keeps
+    // its target; other excluded stocks are left out and the remaining targets scaled up to fill in.
+    const percents = targets.map((t) => (t.group ? (t.percent * groupSum(all, t.group)) / groupSum(targets, t.group) : t.percent));
+    const tsum = percents.reduce((a, p) => a + p, 0);
+    const weights = new Map(targets.map((t, k) => [t.ticker, percents[k] / tsum]));
+    const values = new Map(targets.map((t) => [t.ticker, valueOf(t.ticker)]));
+    const groups = new Map<string, Group>();
+    const groupOf = new Map<string, string>();
+    for (const t of targets) {
+      if (!t.group) continue;
+      groupOf.set(t.ticker, t.group);
+      const g = groups.get(t.group);
+      if (g) g.members.push(t.ticker);
+      else {
+        const value = all.filter((x) => x.group === t.group).reduce((a, x) => a + valueOf(x.ticker), 0);
+        groups.set(t.group, { members: [t.ticker], weight: groupSum(all, t.group) / tsum, value });
+      }
+    }
+    return { category: c, budgetUsd, weights, values, groups, groupOf, total: before[i].investedUsd + budgetUsd };
   });
 
   const price = (t: string) => prices[t];
@@ -199,21 +229,52 @@ export function planPurchase(input: PlanInput): PlanResult {
   };
 }
 
-/** Step 1: ideal dollar buys per category over the allowed tickers. */
+/**
+ * Step 1: ideal dollar buys per category over the allowed tickers. Single stocks and groups are
+ * balanced against each other; a group's money is then split between its allowed stocks.
+ */
 function idealBuys(cats: Cat[], allowed: Set<string>): PerCat {
   return cats.map((c) => {
     const out = new Map<string, number>();
     if (!(c.budgetUsd > 0)) return out;
-    const tickers = [...c.weights.keys()].filter((t) => allowed.has(t));
+    const units = unitsOf(c, allowed);
     const amounts = waterfill(
-      tickers.map((t) => c.values.get(t)!),
-      tickers.map((t) => c.weights.get(t)!),
+      units.map((u) => u.value),
+      units.map((u) => u.weight),
       c.budgetUsd,
       c.total,
     );
-    tickers.forEach((t, i) => amounts[i] > 0 && out.set(t, amounts[i]));
+    units.forEach((u, k) => {
+      if (!(amounts[k] > 0)) return;
+      const inner =
+        u.tickers.length === 1
+          ? [amounts[k]]
+          : waterfill(
+              u.tickers.map((t) => c.values.get(t)!),
+              u.tickers.map((t) => c.weights.get(t)!),
+              amounts[k],
+            );
+      u.tickers.forEach((t, j) => inner[j] > 0 && out.set(t, inner[j]));
+    });
     return out;
   });
+}
+
+/** What is balanced in a category: each allowed single stock, and each group with an allowed stock. */
+function unitsOf(c: Cat, allowed: Set<string>): { tickers: string[]; weight: number; value: number }[] {
+  const units: { tickers: string[]; weight: number; value: number }[] = [];
+  const seen = new Set<string>();
+  for (const t of c.weights.keys()) {
+    if (!allowed.has(t)) continue;
+    const name = c.groupOf.get(t);
+    if (name === undefined) units.push({ tickers: [t], weight: c.weights.get(t)!, value: c.values.get(t)! });
+    else if (!seen.has(name)) {
+      seen.add(name);
+      const g = c.groups.get(name)!;
+      units.push({ tickers: g.members.filter((m) => allowed.has(m)), weight: g.weight, value: g.value });
+    }
+  }
+  return units;
 }
 
 function totalsByTicker(perCat: PerCat): Map<string, number> {
@@ -298,6 +359,24 @@ function topUp(
     return c.budgetUsd - spent;
   });
   const valueNow = (i: number, t: string) => cats[i].values.get(t)! + (shares[i].get(t) ?? 0) * price(t);
+  /**
+   * The parts of the balance objective that one more dollar of t changes in category i, each with
+   * its gap to target and weight: the stock itself, and for a stock in a group also the whole group.
+   * Within a group, a stock's target is its part of the group's target among the allowed stocks.
+   */
+  const termsOf = (i: number, t: string): { gap: number; weight: number }[] => {
+    const c = cats[i];
+    const w = c.weights.get(t)!;
+    const name = c.groupOf.get(t);
+    if (name === undefined) return [{ gap: w * c.total - valueNow(i, t), weight: w }];
+    const g = c.groups.get(name)!;
+    const groupNow = g.value + sum(g.members.map((m) => (shares[i].get(m) ?? 0) * price(m)));
+    const e = (g.weight * w) / sum(g.members.filter((m) => allowed.has(m)).map((m) => c.weights.get(m)!));
+    return [
+      { gap: g.weight * c.total - groupNow, weight: g.weight },
+      { gap: e * c.total - valueNow(i, t), weight: e },
+    ];
+  };
   const candidates = [...allowed].sort();
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -308,19 +387,25 @@ function topUp(
       if (current === 0 && options.maxTickers !== null && orderShares.size >= options.maxTickers) continue;
       if ((current + 1) * p < options.minOrderUsd - EPS) continue;
 
-      // Only categories still below their target for t pay, and each at most 2 × its gap, so no
-      // category ends further from its target than before (its own a·(a − 2·gap) stays ≤ 0).
-      const gapOf = (i: number) => cats[i].weights.get(t)! * cats[i].total - valueNow(i, t);
-      const payers = cats
-        .map((_, i) => i)
-        .filter((i) => cats[i].weights.has(t) && leftover[i] > EPS && gapOf(i) > EPS);
-      const gaps = payers.map(gapOf);
+      // Only categories still below their target for t (and for its group) pay, and each at most
+      // 2 × its smallest gap, so no category ends further from a target than before (each of its
+      // a·(a − 2·gap) stays ≤ 0). A group at or above its target is never bought.
+      const payers: number[] = [];
+      const terms: { gap: number; weight: number }[][] = [];
+      for (let i = 0; i < cats.length; i++) {
+        if (!cats[i].weights.has(t) || !(leftover[i] > EPS)) continue;
+        const ts = termsOf(i, t);
+        if (ts.some((x) => !(x.gap > EPS))) continue;
+        payers.push(i);
+        terms.push(ts);
+      }
+      const gaps = terms.map((ts) => Math.min(...ts.map((x) => x.gap)));
       const caps = payers.map((i, k) => Math.min(leftover[i], 2 * gaps[k]));
       if (sum(caps) < p - EPS) continue;
 
       const pay = splitCost(p, gaps, caps);
-      // Change in Σ (v − g)² / w for each payer: a·(a − 2·gap) / w.
-      const delta = sum(payers.map((i, k) => (pay[k] * (pay[k] - 2 * gaps[k])) / cats[i].weights.get(t)!));
+      // Change in Σ (v − g)² / w for each payer: a·(a − 2·gap) / w per term.
+      const delta = sum(terms.map((ts, k) => sum(ts.map((x) => (pay[k] * (pay[k] - 2 * x.gap)) / x.weight))));
       if (delta < -EPS && (!best || delta < best.delta)) best = { t, payers, pay, delta };
     }
     if (!best) return;
@@ -382,11 +467,16 @@ export function balanceObjective(input: PlanInput, buys: Record<string, Record<s
     if (tsum <= 0) continue;
     const v = valueCategory(c, input.prices);
     const total = v.investedUsd + (input.budgetsIls[c.id] ?? 0) / rate;
+    // A group of stocks counts as one (see docs/DESIGN.md, "Stock groups").
+    const units = new Map<string, { w: number; value: number }>();
     for (const t of targets) {
-      const w = t.percent / tsum;
-      const value = ((c.holdings[t.ticker] ?? 0) + (buys[c.id]?.[t.ticker] ?? 0)) * input.prices[t.ticker];
-      e += (value - w * total) ** 2 / w;
+      const key = t.group ? `group:${t.group}` : t.ticker;
+      const u = units.get(key) ?? { w: 0, value: 0 };
+      u.w += t.percent / tsum;
+      u.value += ((c.holdings[t.ticker] ?? 0) + (buys[c.id]?.[t.ticker] ?? 0)) * input.prices[t.ticker];
+      units.set(key, u);
     }
+    for (const u of units.values()) e += (u.value - u.w * total) ** 2 / u.w;
   }
   return e;
 }

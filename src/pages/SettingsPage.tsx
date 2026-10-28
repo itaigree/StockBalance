@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppData, PriceProviderSetting } from '../types';
 import { useApp, allTickers } from '../state/AppState';
-import { downloadBackup, readBackupFile } from '../data/backup';
+import { readBackupFile } from '../data/backup';
 import { fetchPrices } from '../data/prices';
 import { emptyData } from '../data/schema';
 import { sampleData } from '../data/sample';
+import { useBackup } from '../components/Backup';
 import { ImportHoldings } from '../components/ImportHoldings';
 import { Modal } from '../components/Modal';
 import { NumberField } from '../components/NumberField';
+import { fmtAgo, fmtDateTime } from '../lib/format';
 import './SettingsPage.css';
 
 const PROVIDERS: { id: PriceProviderSetting; label: string; help: string }[] = [
@@ -24,6 +26,7 @@ const PROVIDERS: { id: PriceProviderSetting; label: string; help: string }[] = [
 export function SettingsPage() {
   const { data, actions } = useApp();
   const { settings } = data;
+  const backup = useBackup();
   const [showKey, setShowKey] = useState(false);
   const [proxyTest, setProxyTest] = useState<{ ok: boolean; text: string } | 'testing' | null>(null);
   const [minOrder, setMinOrder] = useState<number | null>(settings.minOrderUsd);
@@ -212,25 +215,36 @@ export function SettingsPage() {
         <h2 id="backup-title">Backup</h2>
         <p>
           Your data is stored only in this browser. Clearing the browser's data, or using another browser or device,
-          means starting empty — so download a backup now and then, especially after recording purchases.
+          means starting empty — so make a backup now and then, especially after recording purchases, and keep it
+          somewhere safe (Google Drive, iCloud, email to yourself). To move to another device, restore it there.
+        </p>
+        <p className="muted small-text">
+          {backup.mark.at
+            ? `Last backup from this browser: ${fmtAgo(backup.mark.at)} (${fmtDateTime(backup.mark.at)}).`
+            : 'No backup made from this browser yet.'}
         </p>
         <div className="row">
           <button
             type="button"
             onClick={() => {
-              downloadBackup(data);
+              backup.download();
               setDone('Backup downloaded.');
             }}
           >
             Download backup
           </button>
+          {backup.canShare && (
+            <button type="button" onClick={() => void backup.share()}>
+              Save or send…
+            </button>
+          )}
           <button type="button" className="secondary" onClick={() => fileInput.current?.click()}>
             Restore from backup…
           </button>
           <input
             ref={fileInput}
             type="file"
-            accept="application/json,.json"
+            accept="application/json,.json,text/plain,.txt"
             className="visually-hidden"
             aria-label="Backup file to restore"
             onChange={async (e) => {
@@ -247,6 +261,11 @@ export function SettingsPage() {
             }}
           />
         </div>
+        {backup.error && (
+          <div className="banner error" role="alert">
+            {backup.error}
+          </div>
+        )}
         {restoreError && (
           <div className="banner error" role="alert">
             This file can't be restored: {restoreError}

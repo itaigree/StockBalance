@@ -4,6 +4,7 @@ import type { Category } from '../types';
 import { applyTransaction, revertTransaction, transactionFromPlan } from './ledger';
 import { balanceObjective, planPurchase } from './plan';
 import { splitContribution } from './split';
+import { valueCategory } from './valuation';
 import type { PlanInput, PlanResult } from './types';
 import { waterfill } from './waterfill';
 
@@ -18,7 +19,9 @@ const priceArb = fc.oneof(
 const categoryArb = (id: string) =>
   fc.record({
     targets: fc.subarray(TICKERS, { minLength: 0, maxLength: 4 }).chain((ts) =>
-      fc.tuple(...ts.map(() => fc.integer({ min: 0, max: 100 }))).map((ps) => ts.map((ticker, i) => ({ ticker, percent: ps[i] }))),
+      fc
+        .tuple(...ts.map(() => fc.tuple(fc.integer({ min: 0, max: 100 }), fc.constantFrom(undefined, undefined, 'X', 'Y'))))
+        .map((ps) => ts.map((ticker, i) => ({ ticker, percent: ps[i][0], ...(ps[i][1] ? { group: ps[i][1] } : {}) }))),
     ),
     holdings: fc.dictionary(fc.constantFrom(...TICKERS), fc.oneof(fc.constant(0), fc.integer({ min: 0, max: 200 }), fc.double({ min: 0, max: 200, noNaN: true }))),
     budget: fc.oneof(fc.constant(0), fc.double({ min: 0, max: 50_000, noNaN: true }), fc.integer({ min: 0, max: 1_000_000 })),
@@ -83,7 +86,9 @@ describe('planPurchase invariants', () => {
           const attributed = plan.categories.reduce((s, c) => s + (c.buys.find((b) => b.ticker === o.ticker)?.shares ?? 0), 0);
           expect(Math.abs(attributed - o.shares)).toBeLessThan(1e-6);
           if (input.options.wholeShares) expect(Number.isInteger(o.shares)).toBe(true);
-          expect(o.costUsd).toBeGreaterThanOrEqual(input.options.minOrderUsd - 1e-6);
+          // Fractional orders are floored to 1e-6 of a share, which may miss the minimum by that much.
+          const slack = input.options.wholeShares ? 0 : o.priceUsd * 1e-6;
+          expect(o.costUsd).toBeGreaterThanOrEqual(input.options.minOrderUsd - 1e-6 - slack);
         }
         if (input.options.maxTickers !== null) expect(plan.orders.length).toBeLessThanOrEqual(input.options.maxTickers);
         expect(Math.abs(plan.totals.spentUsd - plan.orders.reduce((s, o) => s + o.costUsd, 0))).toBeLessThan(1e-6);
@@ -114,6 +119,28 @@ describe('planPurchase invariants', () => {
           const before = balanceObjective(single, {});
           const after = balanceObjective(single, { [c.id]: buys[c.id] ?? {} });
           expect(after).toBeLessThanOrEqual(before * (1 + 1e-9) + 1e-6);
+        }
+      }),
+      RUNS,
+    );
+  });
+
+  it('never buys a stock of a group that is already above its target', () => {
+    fc.assert(
+      fc.property(inputArb, (input) => {
+        const plan = planPurchase(input);
+        const rate = input.usdIls * (1 + input.fxFeePercent / 100);
+        for (const c of input.categories) {
+          const targets = c.targets.filter((t) => t.percent > 0);
+          const tsum = targets.reduce((a, t) => a + t.percent, 0);
+          const total = valueCategory(c, input.prices).investedUsd + (input.budgetsIls[c.id] ?? 0) / rate;
+          const bought = new Set(plan.categories.find((x) => x.categoryId === c.id)!.buys.map((b) => b.ticker));
+          for (const g of new Set(targets.flatMap((t) => (t.group ? [t.group] : [])))) {
+            const members = targets.filter((t) => t.group === g);
+            const value = members.reduce((a, t) => a + (c.holdings[t.ticker] ?? 0) * input.prices[t.ticker], 0);
+            const target = (members.reduce((a, t) => a + t.percent, 0) / tsum) * total;
+            if (value > target + 1e-6) for (const t of members) expect(bought.has(t.ticker)).toBe(false);
+          }
         }
       }),
       RUNS,

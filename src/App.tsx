@@ -1,14 +1,22 @@
-import { PAGES, usePage } from './lib/router';
+import { useEffect } from 'react';
+import { PAGES, useRoute } from './lib/router';
 import { useApp } from './state/AppState';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { InvestPage } from './pages/InvestPage';
-import { HistoryPage } from './pages/HistoryPage';
 import { CategoriesPage } from './pages/CategoriesPage';
+import { CategoryPage } from './pages/CategoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 export function App() {
-  const [page] = usePage();
+  const route = useRoute();
   const { loadError, saveError } = useApp();
+  const tab = route.page === 'category' ? 'categories' : route.page;
+  const where = route.page === 'category' ? `category/${route.categoryId}` : route.page;
+
+  // Start each page at the top.
+  useEffect(() => {
+    window.scrollTo?.(0, 0);
+  }, [where]);
 
   return (
     <>
@@ -17,7 +25,7 @@ export function App() {
           <div className="brand">⚖️ StockBalance</div>
           <nav className="tabs" aria-label="Main">
             {PAGES.map((p) => (
-              <a key={p.id} href={`#/${p.id}`} aria-current={page === p.id ? 'page' : undefined}>
+              <a key={p.id} href={`#/${p.id}`} aria-current={tab === p.id ? 'page' : undefined}>
                 {p.label}
               </a>
             ))}
@@ -35,11 +43,11 @@ export function App() {
             Your changes could not be saved in this browser: {saveError} Export a backup from Settings to keep them.
           </div>
         )}
-        {page === 'portfolio' && <PortfolioPage />}
-        {page === 'invest' && <InvestPage />}
-        {page === 'history' && <HistoryPage />}
-        {page === 'categories' && <CategoriesPage />}
-        {page === 'settings' && <SettingsPage />}
+        {route.page === 'portfolio' && <PortfolioPage />}
+        {route.page === 'invest' && <InvestPage />}
+        {route.page === 'categories' && <CategoriesPage />}
+        {route.page === 'category' && <CategoryPage categoryId={route.categoryId} />}
+        {route.page === 'settings' && <SettingsPage />}
       </main>
     </>
   );

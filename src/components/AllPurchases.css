@@ -1,0 +1,45 @@
+.tx-orders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+}
+.tx-note {
+  font-style: italic;
+  color: var(--muted);
+}
+.tx-card details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+.tx-card details[open] summary {
+  margin-bottom: 0.5rem;
+}
+.tx-card {
+  padding: 0.75rem 0;
+}
+.tx-card + .tx-card {
+  border-top: 1px solid var(--border);
+}
+.tx-card .card-header h2 {
+  font-size: 1rem;
+}
+.all-purchases > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.all-purchases > summary h2 {
+  display: inline;
+  margin: 0;
+}
+.all-purchases[open] > summary {
+  margin-bottom: 0.25rem;
+}

@@ -23,3 +23,11 @@
 tr.buying td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
+.orders .check-col {
+  width: 2rem;
+  padding-right: 0;
+}
+.orders .excluded-row .ticker {
+  color: var(--muted);
+  text-decoration: line-through;
+}

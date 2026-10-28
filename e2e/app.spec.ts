@@ -52,7 +52,7 @@ test('invest, record, check holdings and history, undo', async ({ page }) => {
   const planned: Record<string, number> = {};
   for (let i = 0; i < count; i++) {
     const cells = rows.nth(i).locator('td');
-    planned[(await cells.nth(0).textContent())!] = Number(await cells.nth(1).textContent());
+    planned[(await cells.nth(1).textContent())!] = Number(await cells.nth(2).textContent());
   }
   // One order per stock, whole shares.
   expect(new Set(Object.keys(planned)).size).toBe(count);

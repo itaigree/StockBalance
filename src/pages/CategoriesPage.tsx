@@ -4,6 +4,7 @@ import { splitContribution } from '../engine';
 import { useApp } from '../state/AppState';
 import { fmtIls, fmtPercent, fmtShares, isZeroMoney } from '../lib/format';
 import { describeRule } from '../lib/rules';
+import { targetItems } from '../lib/targetGroups';
 import { CategoryEditor } from '../components/CategoryEditor';
 import { MergeModal, SplitModal } from '../components/MergeSplitModals';
 import { Modal } from '../components/Modal';
@@ -59,11 +60,18 @@ export function CategoriesPage() {
                   <div className="muted small-text">{describeRule(c.contribution)}</div>
                   <div className="targets-summary">
                     {c.targets.length > 0 ? (
-                      c.targets.map((t) => (
-                        <span key={t.ticker} className="target-chip">
-                          <span className="ticker">{t.ticker}</span> {fmtPercent(t.percent, t.percent % 1 === 0 ? 0 : 1)}
-                        </span>
-                      ))
+                      targetItems(c).map((t) =>
+                        t.kind === 'stock' ? (
+                          <span key={t.ticker} className="target-chip">
+                            <span className="ticker">{t.ticker}</span> {fmtPercent(t.percent, t.percent % 1 === 0 ? 0 : 1)}
+                          </span>
+                        ) : (
+                          <span key={`g:${t.name}`} className="target-chip group-chip">
+                            <strong>{t.name}</strong> {fmtPercent(t.percent, t.percent % 1 === 0 ? 0 : 1)}{' '}
+                            <span className="muted">({t.tickers.join(', ')})</span>
+                          </span>
+                        ),
+                      )
                     ) : (
                       <span className="warn-text small-text">No target stocks</span>
                     )}

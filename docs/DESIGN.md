@@ -197,3 +197,25 @@ together. Shares are buys minus sells; non-USD rows are skipped.
   the new category's money rule starts as "nothing by default". Past purchases stay with the
   original category.
 - Both clear the saved Invest plan, which may refer to the old categories.
+
+## Stock groups
+
+A category's targets can include a group, e.g. "Corporates" 5% with AMZN and TSLA. It is stored as
+ordinary per-stock targets with a `group` label (AMZN 2.5% and TSLA 2.5%, both `group: "Corporates"`):
+the group's percent is split equally between its stocks, so the calculation needs no special case.
+The group label is only used for editing and display (a combined row on the Portfolio page).
+
+## Skipping stocks in a purchase
+
+On the Invest page the user can untick stocks in the orders list (`PlanOptions.excludeTickers`).
+For each category, an excluded stock's target is dropped and the remaining targets are scaled up
+proportionally, so the money that would have gone to it is spread over the category's other stocks
+(the cap at the target value then applies to these scaled targets). A category whose stocks are all
+excluded keeps its budget as cash.
+
+## Recording what was actually bought
+
+When recording, the user chooses "I bought exactly what was recommended" (the plan is recorded as
+is) or "I bought something different": shares and prices of the recommended orders can be changed
+(0 = not bought), and stocks that weren't recommended can be added, each for one chosen category
+(`ExecutedPurchase.orders[].categoryId`).

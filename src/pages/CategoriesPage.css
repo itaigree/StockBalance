@@ -40,3 +40,6 @@
 .split-preview .card-header label {
   font-weight: 400;
 }
+.group-chip {
+  white-space: normal;
+}

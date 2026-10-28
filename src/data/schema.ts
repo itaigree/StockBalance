@@ -40,7 +40,9 @@ const category = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{3,8}$/)
     .catch('#2563eb'),
-  targets: z.array(z.object({ ticker, percent: z.number().min(0).max(100) })).default([]),
+  targets: z
+    .array(z.object({ ticker, percent: z.number().min(0).max(100), group: z.string().trim().min(1).optional() }))
+    .default([]),
   holdings: z.record(z.string(), z.number().nonnegative()).default({}),
   cashIls: z.number().default(0),
   contribution: contribution.default({ kind: 'none' }),
@@ -163,10 +165,14 @@ export function parseAppData(raw: unknown): ParseResult {
   };
 }
 
-function mergeTargets(targets: { ticker: string; percent: number }[]) {
-  const merged = new Map<string, number>();
-  for (const t of targets) merged.set(t.ticker, (merged.get(t.ticker) ?? 0) + t.percent);
-  return [...merged].map(([ticker, percent]) => ({ ticker, percent }));
+function mergeTargets(targets: { ticker: string; percent: number; group?: string }[]) {
+  const merged = new Map<string, { percent: number; group?: string }>();
+  for (const t of targets) {
+    const m = merged.get(t.ticker);
+    if (m) m.percent += t.percent;
+    else merged.set(t.ticker, { percent: t.percent, ...(t.group ? { group: t.group } : {}) });
+  }
+  return [...merged].map(([ticker, m]) => ({ ticker, ...m }));
 }
 
 function normaliseHoldings(holdings: Record<string, number>): Record<string, number> {

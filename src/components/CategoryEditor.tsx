@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { Category, ContributionRule } from '../types';
 import { CATEGORY_COLORS, newId } from '../lib/ids';
 import { fmtPercent, normalizeTicker } from '../lib/format';
@@ -12,8 +12,18 @@ const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
 interface Row {
   key: string;
   ticker: string;
+  /** Target percent; not used for rows inside a group (the group's percent is split equally). */
   percent: number | null;
   shares: number | null;
+  /** Key of the group this stock belongs to, if any. */
+  group?: string;
+}
+
+/** A group of stocks sharing one target, e.g. "Corporates" 5% split equally over AMZN, TSLA… */
+interface Group {
+  key: string;
+  name: string;
+  percent: number | null;
 }
 
 interface Props {
@@ -24,19 +34,37 @@ interface Props {
   onClose: () => void;
 }
 
-function rowsFrom(category: Category | null): Row[] {
-  if (!category) return [{ key: newId(), ticker: '', percent: null, shares: null }];
-  const tickers = [
-    ...category.targets.map((t) => t.ticker),
-    ...Object.keys(category.holdings).filter((t) => !category.targets.some((x) => x.ticker === t)).sort(),
-  ];
-  const rows = [...new Set(tickers)].map((ticker) => ({
-    key: newId(),
-    ticker,
-    percent: category.targets.find((t) => t.ticker === ticker)?.percent ?? null,
-    shares: category.holdings[ticker] ?? null,
-  }));
-  return rows.length > 0 ? rows : [{ key: newId(), ticker: '', percent: null, shares: null }];
+function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } {
+  const empty = { key: newId(), ticker: '', percent: null, shares: null };
+  if (!category) return { rows: [empty], groups: [] };
+  const groups: Group[] = [];
+  const rows: Row[] = [];
+  for (const t of category.targets) {
+    if (rows.some((r) => r.ticker === t.ticker)) continue;
+    let groupKey: string | undefined;
+    if (t.group) {
+      let g = groups.find((x) => x.name === t.group);
+      if (!g) {
+        g = { key: newId(), name: t.group, percent: 0 };
+        groups.push(g);
+      }
+      g.percent = Math.round(((g.percent ?? 0) + t.percent) * 1e6) / 1e6;
+      groupKey = g.key;
+    }
+    rows.push({
+      key: newId(),
+      ticker: t.ticker,
+      percent: t.group ? null : t.percent,
+      shares: category.holdings[t.ticker] ?? null,
+      ...(groupKey ? { group: groupKey } : {}),
+    });
+  }
+  for (const ticker of Object.keys(category.holdings)
+    .filter((t) => !rows.some((r) => r.ticker === t))
+    .sort()) {
+    rows.push({ key: newId(), ticker, percent: null, shares: category.holdings[ticker] });
+  }
+  return { rows: rows.some((r) => !r.group) ? rows : [empty, ...rows], groups };
 }
 
 /** Create or edit a category: name, color, contribution rule, cash, and its stocks (target % and shares owned). */
@@ -54,23 +82,43 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   );
   const [cash, setCash] = useState<number | null>(category?.cashIls ?? 0);
   const [notes, setNotes] = useState(category?.notes ?? '');
-  const [rows, setRows] = useState<Row[]>(() => rowsFrom(category));
+  const [initial] = useState(() => stateFrom(category));
+  const [rows, setRows] = useState<Row[]>(initial.rows);
+  const [groups, setGroups] = useState<Group[]>(initial.groups);
   const [submitted, setSubmitted] = useState(false);
 
-  const updateRow = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const updateRow = (key: string, patch: Partial<Row>) =>
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const updateGroup = (key: string, patch: Partial<Group>) =>
+    setGroups((gs) => gs.map((g) => (g.key === key ? { ...g, ...patch } : g)));
   const filled = rows.filter((r) => r.ticker.trim() !== '' || r.percent !== null || r.shares !== null);
-  const targetTotal = filled.reduce((s, r) => s + (r.percent ?? 0), 0);
-  const hasTargets = filled.some((r) => (r.percent ?? 0) > 0);
+  const single = rows.filter((r) => !r.group);
+  const membersOf = (g: Group) => rows.filter((r) => r.group === g.key);
+  const filledMembers = (g: Group) => membersOf(g).filter((r) => r.ticker.trim() !== '');
+  const targetTotal =
+    filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) + groups.reduce((s, g) => s + (g.percent ?? 0), 0);
+  const hasTargets = filled.some((r) => !r.group && (r.percent ?? 0) > 0) || groups.some((g) => (g.percent ?? 0) > 0);
 
   const errors = (() => {
-    const e: { name?: string; rule?: string; cash?: string; rows: Record<string, string>; total?: string } = { rows: {} };
+    const e: {
+      name?: string;
+      rule?: string;
+      cash?: string;
+      rows: Record<string, string>;
+      groups: Record<string, string>;
+      total?: string;
+    } = {
+      rows: {},
+      groups: {},
+    };
     const trimmed = name.trim();
     if (!trimmed) e.name = 'Give the category a name.';
     else if (existing.some((c) => c.id !== category?.id && c.name.trim().toLowerCase() === trimmed.toLowerCase())) {
       e.name = 'Another category already has this name.';
     }
     if (ruleKind === 'fixed' && !(fixedAmount !== null && fixedAmount >= 0)) e.rule = 'Enter the fixed amount (0 or more).';
-    if (ruleKind === 'percent' && !(percent !== null && percent >= 0 && percent <= 100)) e.rule = 'Enter a percentage between 0 and 100.';
+    if (ruleKind === 'percent' && !(percent !== null && percent >= 0 && percent <= 100))
+      e.rule = 'Enter a percentage between 0 and 100.';
     if (cash === null) e.cash = 'Enter an amount (0 if none).';
 
     const seen = new Set<string>();
@@ -79,27 +127,62 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       if (!t) e.rows[r.key] = 'Enter the ticker symbol.';
       else if (!TICKER_RE.test(t)) e.rows[r.key] = 'Use letters, digits, "." or "-" (e.g. VOO, BRK.B).';
       else if (seen.has(t)) e.rows[r.key] = `${t} is listed twice.`;
-      else if (r.percent !== null && (r.percent < 0 || r.percent > 100)) e.rows[r.key] = 'Target must be between 0 and 100%.';
+      else if (!r.group && r.percent !== null && (r.percent < 0 || r.percent > 100))
+        e.rows[r.key] = 'Target must be between 0 and 100%.';
       else if (r.shares !== null && r.shares < 0) e.rows[r.key] = "Shares can't be negative.";
       seen.add(t);
     }
-    if (hasTargets && Math.abs(targetTotal - 100) > 0.01) e.total = `Targets add up to ${fmtPercent(targetTotal, 2)}; they must add up to 100%.`;
+    const groupNames = new Set<string>();
+    for (const g of groups) {
+      const n = g.name.trim().toLowerCase();
+      if (!n) e.groups[g.key] = 'Give the group a name.';
+      else if (groupNames.has(n)) e.groups[g.key] = 'Two groups have this name.';
+      else if (!(g.percent !== null && g.percent > 0 && g.percent <= 100)) e.groups[g.key] = 'Set the group’s target (above 0%).';
+      else if (filledMembers(g).length === 0) e.groups[g.key] = 'Add at least one stock to the group.';
+      groupNames.add(n);
+    }
+    if (hasTargets && Math.abs(targetTotal - 100) > 0.01)
+      e.total = `Targets add up to ${fmtPercent(targetTotal, 2)}; they must add up to 100%.`;
     return e;
   })();
 
-  const valid = !errors.name && !errors.rule && !errors.cash && !errors.total && Object.keys(errors.rows).length === 0;
+  const valid =
+    !errors.name &&
+    !errors.rule &&
+    !errors.cash &&
+    !errors.total &&
+    Object.keys(errors.rows).length === 0 &&
+    Object.keys(errors.groups).length === 0;
 
   const scaleTo100 = () => {
     if (targetTotal <= 0) return;
-    const withTarget = rows.filter((r) => (r.percent ?? 0) > 0);
+    const items = [
+      ...rows.filter((r) => !r.group && (r.percent ?? 0) > 0).map((r) => ({ key: r.key, percent: r.percent! })),
+      ...groups.filter((g) => (g.percent ?? 0) > 0).map((g) => ({ key: g.key, percent: g.percent! })),
+    ];
     let assigned = 0;
     const scaled = new Map<string, number>();
-    withTarget.forEach((r, i) => {
-      const v = i === withTarget.length - 1 ? Math.round((100 - assigned) * 100) / 100 : Math.round(((r.percent! * 100) / targetTotal) * 100) / 100;
+    items.forEach((it, i) => {
+      const v =
+        i === items.length - 1
+          ? Math.round((100 - assigned) * 100) / 100
+          : Math.round(((it.percent * 100) / targetTotal) * 100) / 100;
       assigned += v;
-      scaled.set(r.key, v);
+      scaled.set(it.key, v);
     });
     setRows((rs) => rs.map((r) => (scaled.has(r.key) ? { ...r, percent: scaled.get(r.key)! } : r)));
+    setGroups((gs) => gs.map((g) => (scaled.has(g.key) ? { ...g, percent: scaled.get(g.key)! } : g)));
+  };
+
+  const addGroup = () => {
+    const key = newId();
+    setGroups((gs) => [...gs, { key, name: '', percent: null }]);
+    setRows((rs) => [...rs, { key: newId(), ticker: '', percent: null, shares: null, group: key }]);
+  };
+  const removeGroup = (key: string) => {
+    setGroups((gs) => gs.filter((g) => g.key !== key));
+    // Its stocks stay in the category (as held stocks without a target).
+    setRows((rs) => rs.map((r) => (r.group === key ? { ...r, group: undefined } : r)));
   };
 
   const save = () => {
@@ -118,13 +201,76 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       color,
       contribution,
       cashIls: cash ?? 0,
-      targets: filled.filter((r) => (r.percent ?? 0) > 0).map((r) => ({ ticker: normalizeTicker(r.ticker), percent: r.percent! })),
+      targets: [
+        ...filled
+          .filter((r) => !r.group && (r.percent ?? 0) > 0)
+          .map((r) => ({ ticker: normalizeTicker(r.ticker), percent: r.percent! })),
+        ...groups.flatMap((g) => {
+          const members = filledMembers(g);
+          return members.map((r) => ({
+            ticker: normalizeTicker(r.ticker),
+            percent: g.percent! / members.length,
+            group: g.name.trim(),
+          }));
+        }),
+      ],
       holdings: Object.fromEntries(filled.filter((r) => (r.shares ?? 0) > 0).map((r) => [normalizeTicker(r.ticker), r.shares!])),
       ...(trimmedNotes ? { notes: trimmedNotes } : {}),
     });
   };
 
   const show = (msg?: string) => (submitted && msg ? <span className="error-text">{msg}</span> : null);
+
+  const removeRow = (r: Row) =>
+    setRows((rs) => {
+      const rest = rs.filter((x) => x.key !== r.key);
+      return rest.some((x) => !x.group) ? rest : [{ key: newId(), ticker: '', percent: null, shares: null }, ...rest];
+    });
+
+  // A plain function (not a component) so inputs keep focus while typing.
+  const stockRow = (r: Row, i: number, inGroup = false) => (
+    <tr key={r.key} className={`${inGroup ? 'member-row' : ''}${submitted && errors.rows[r.key] ? ' has-error' : ''}`}>
+      <td>
+        <input
+          type="text"
+          className="ticker-input"
+          value={r.ticker}
+          aria-label={`Ticker, row ${i + 1}`}
+          placeholder={inGroup ? 'AMZN' : 'VOO'}
+          autoCapitalize="characters"
+          spellCheck={false}
+          onChange={(e) => updateRow(r.key, { ticker: e.target.value.toUpperCase() })}
+        />
+        {show(errors.rows[r.key])}
+      </td>
+      <td className="num">
+        {inGroup ? (
+          <span className="muted small-text">in group</span>
+        ) : (
+          <NumberField
+            className="narrow"
+            value={r.percent}
+            onChange={(v) => updateRow(r.key, { percent: v })}
+            suffix="%"
+            aria-label={`Target percent, row ${i + 1}`}
+          />
+        )}
+      </td>
+      <td className="num">
+        <NumberField
+          className="narrow"
+          value={r.shares}
+          onChange={(v) => updateRow(r.key, { shares: v })}
+          aria-label={`Shares owned, row ${i + 1}`}
+        />
+      </td>
+      <td>
+        <button type="button" className="icon-button" aria-label={`Remove row ${i + 1}`} onClick={() => removeRow(r)}>
+          ×
+        </button>
+      </td>
+    </tr>
+  );
 
   return (
     <Modal
@@ -179,8 +325,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         <fieldset className="field">
           <legend>Stocks in this category</legend>
           <p className="hint">
-            For each stock, set the share of this category it should be (target) and how many shares this category owns
-            now. A stock with no target is kept but never bought.
+            For each stock, set the share of this category it should be (target) and how many shares this category owns now. A
+            stock with no target is kept but never bought. A group (e.g. "Corporates" 5% with AMZN, TSLA…) shares one target
+            equally between its stocks.
           </p>
           <div className="table-wrap">
             <table className="stock-rows">
@@ -195,50 +342,66 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={r.key} className={submitted && errors.rows[r.key] ? 'has-error' : undefined}>
-                    <td>
-                      <input
-                        type="text"
-                        className="ticker-input"
-                        value={r.ticker}
-                        aria-label={`Ticker, row ${i + 1}`}
-                        placeholder="VOO"
-                        autoCapitalize="characters"
-                        spellCheck={false}
-                        onChange={(e) => updateRow(r.key, { ticker: e.target.value.toUpperCase() })}
-                      />
-                      {show(errors.rows[r.key])}
-                    </td>
-                    <td className="num">
-                      <NumberField
-                        className="narrow"
-                        value={r.percent}
-                        onChange={(v) => updateRow(r.key, { percent: v })}
-                        suffix="%"
-                        aria-label={`Target percent, row ${i + 1}`}
-                      />
-                    </td>
-                    <td className="num">
-                      <NumberField
-                        className="narrow"
-                        value={r.shares}
-                        onChange={(v) => updateRow(r.key, { shares: v })}
-                        aria-label={`Shares owned, row ${i + 1}`}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`Remove row ${i + 1}`}
-                        onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.key !== r.key) : [{ ...rs[0], ticker: '', percent: null, shares: null }]))}
-                      >
-                        ×
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {single.map((r) => stockRow(r, rows.indexOf(r)))}
+                {groups.map((g, gi) => {
+                  const members = membersOf(g);
+                  const each = (g.percent ?? 0) / Math.max(1, filledMembers(g).length);
+                  return (
+                    <Fragment key={g.key}>
+                      <tr className={`group-row${submitted && errors.groups[g.key] ? ' has-error' : ''}`}>
+                        <td>
+                          <input
+                            type="text"
+                            className="group-name-input"
+                            value={g.name}
+                            placeholder="Group name, e.g. Corporates"
+                            aria-label={`Group name, group ${gi + 1}`}
+                            onChange={(e) => updateGroup(g.key, { name: e.target.value })}
+                          />
+                          {show(errors.groups[g.key])}
+                        </td>
+                        <td className="num">
+                          <NumberField
+                            className="narrow"
+                            value={g.percent}
+                            onChange={(v) => updateGroup(g.key, { percent: v })}
+                            suffix="%"
+                            aria-label={`Group target percent, group ${gi + 1}`}
+                          />
+                        </td>
+                        <td className="muted small-text group-split">
+                          {filledMembers(g).length > 0 && (g.percent ?? 0) > 0
+                            ? `${fmtPercent(each, each % 1 === 0 ? 0 : 2)} each`
+                            : 'split equally'}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label={`Remove group ${gi + 1}`}
+                            onClick={() => removeGroup(g.key)}
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                      {members.map((r) => stockRow(r, rows.indexOf(r), true))}
+                      <tr className="group-add">
+                        <td colSpan={4}>
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() =>
+                              setRows((rs) => [...rs, { key: newId(), ticker: '', percent: null, shares: null, group: g.key }])
+                            }
+                          >
+                            + Add stock to {g.name.trim() || 'this group'}
+                          </button>
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -249,6 +412,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
               onClick={() => setRows((rs) => [...rs, { key: newId(), ticker: '', percent: null, shares: null }])}
             >
               + Add stock
+            </button>
+            <button type="button" className="secondary small" onClick={addGroup}>
+              + Add group
             </button>
             <span className="spacer" />
             <span className={hasTargets && Math.abs(targetTotal - 100) > 0.01 ? 'error-text' : 'muted'}>
@@ -266,14 +432,22 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         <fieldset className="field">
           <legend>Share of the money you invest</legend>
           <div className="row">
-            <select value={ruleKind} onChange={(e) => setRuleKind(e.target.value as ContributionRule['kind'])} aria-label="How this category gets money">
+            <select
+              value={ruleKind}
+              onChange={(e) => setRuleKind(e.target.value as ContributionRule['kind'])}
+              aria-label="How this category gets money"
+            >
               <option value="fixed">A fixed amount</option>
               <option value="percent">A percentage of what's left</option>
               <option value="remainder">Whatever is left</option>
               <option value="none">Nothing by default</option>
             </select>
-            {ruleKind === 'fixed' && <NumberField value={fixedAmount} onChange={setFixedAmount} prefix="₪" aria-label="Fixed amount in ILS" />}
-            {ruleKind === 'percent' && <NumberField className="narrow" value={percent} onChange={setPercent} suffix="%" aria-label="Percentage" />}
+            {ruleKind === 'fixed' && (
+              <NumberField value={fixedAmount} onChange={setFixedAmount} prefix="₪" aria-label="Fixed amount in ILS" />
+            )}
+            {ruleKind === 'percent' && (
+              <NumberField className="narrow" value={percent} onChange={setPercent} suffix="%" aria-label="Percentage" />
+            )}
           </div>
           {show(errors.rule)}
           <p className="hint">{RULE_EXPLANATION}</p>

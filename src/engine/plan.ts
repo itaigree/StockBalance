@@ -83,9 +83,11 @@ export function planPurchase(input: PlanInput): PlanResult {
     };
   }
 
+  const excluded = new Set(options.excludeTickers ?? []);
   const cats: Cat[] = categories.map((c, i) => {
     const budgetUsd = budgetsIlsList[i] / rate;
-    const targets = mergedTargets(c);
+    // Excluded stocks are left out and the remaining targets are scaled up to fill their share.
+    const targets = mergedTargets(c).filter((t) => !excluded.has(t.ticker));
     const tsum = targets.reduce((a, t) => a + t.percent, 0);
     const weights = new Map(targets.map((t) => [t.ticker, t.percent / tsum]));
     const values = new Map(targets.map((t) => [t.ticker, (c.holdings[t.ticker] ?? 0) * (validPrice(prices, t.ticker) ?? 0)]));
@@ -158,6 +160,9 @@ export function planPurchase(input: PlanInput): PlanResult {
     let leftoverIls = budgetsIlsList[i] - spentIls;
     if (leftoverIls < 0 && leftoverIls > -1e-6) leftoverIls = 0;
 
+    if (budgetsIlsList[i] > 0 && c.weights.size === 0 && mergedTargets(c.category).length > 0) {
+      warnings.push(`${c.category.name}: all its stocks are excluded this time, so its ${fmtIls(budgetsIlsList[i])} stays as cash.`);
+    }
     if (budgetsIlsList[i] > 0 && buys.length === 0 && c.weights.size > 0) {
       warnings.push(
         `${c.category.name}: ${fmtIls(budgetsIlsList[i])} stays as cash for next time — it isn't enough for a share or an order this time.`,

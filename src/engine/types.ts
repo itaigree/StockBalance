@@ -40,6 +40,11 @@ export interface PlanOptions {
   minOrderUsd: number;
   /** null = no limit. */
   maxTickers: number | null;
+  /**
+   * Stocks the user doesn't want to buy this time. Their target share is spread over each
+   * category's other target stocks (in proportion to their targets), so the money goes to the rest.
+   */
+  excludeTickers?: string[];
 }
 
 export interface PlanInput {
@@ -97,8 +102,12 @@ export interface PlanResult {
 }
 
 export interface ExecutedPurchase {
-  /** What was actually bought, one entry per planned ticker (shares may be 0 = not bought). */
-  orders: { ticker: string; shares: number; priceUsd: number }[];
+  /**
+   * What was actually bought (shares may be 0 = not bought). Planned tickers are split between
+   * categories as planned; a ticker given a `categoryId` (e.g. one that wasn't in the plan) goes
+   * entirely to that category.
+   */
+  orders: { ticker: string; shares: number; priceUsd: number; categoryId?: string }[];
   usdIls: number;
   fxFeePercent: number;
   /** ISO timestamp. */

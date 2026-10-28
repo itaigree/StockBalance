@@ -127,5 +127,58 @@ describe('CategoriesPage', () => {
       expect(cats[1].contribution).toEqual({ kind: 'none' });
     });
   });
+
+  it('creates a group of stocks that share one target equally', async () => {
+    const { user } = renderApp('categories');
+    await user.click(screen.getByRole('button', { name: 'Add your first category' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'Investments');
+    await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'VOO');
+    await user.type(within(dialog).getByLabelText('Target percent, row 1'), '80');
+    await user.click(within(dialog).getByRole('button', { name: '+ Add group' }));
+    await user.type(within(dialog).getByLabelText('Group name, group 1'), 'Corporates');
+    await user.type(within(dialog).getByLabelText('Group target percent, group 1'), '20');
+    await user.type(within(dialog).getByLabelText('Ticker, row 2'), 'AMZN');
+    await user.type(within(dialog).getByLabelText('Shares owned, row 2'), '3');
+    await user.click(within(dialog).getByRole('button', { name: '+ Add stock to Corporates' }));
+    await user.type(within(dialog).getByLabelText('Ticker, row 3'), 'TSLA');
+    expect(within(dialog).getByText('10% each')).toBeInTheDocument();
+    expect(within(dialog).getByText('Targets add up to 100%')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Corporates')).toBeInTheDocument();
+    expect(screen.getByText('(AMZN, TSLA)')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(savedData().categories[0]).toMatchObject({
+        targets: [
+          { ticker: 'VOO', percent: 80 },
+          { ticker: 'AMZN', percent: 10, group: 'Corporates' },
+          { ticker: 'TSLA', percent: 10, group: 'Corporates' },
+        ],
+        holdings: { AMZN: 3 },
+      }),
+    );
+
+    // Editing again shows the group with its total.
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const again = screen.getByRole('dialog');
+    expect(within(again).getByLabelText('Group name, group 1')).toHaveValue('Corporates');
+    expect(within(again).getByLabelText('Group target percent, group 1')).toHaveValue('20');
+  });
+
+  it('validates groups', async () => {
+    const { user } = renderApp('categories');
+    await user.click(screen.getByRole('button', { name: 'Add your first category' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'X');
+    await user.click(within(dialog).getByRole('button', { name: '+ Add group' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(within(dialog).getByText('Give the group a name.')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('Group name, group 1'), 'G');
+    expect(within(dialog).getByText('Set the group’s target (above 0%).')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('Group target percent, group 1'), '100');
+    expect(within(dialog).getByText('Add at least one stock to the group.')).toBeInTheDocument();
+  });
 });
 

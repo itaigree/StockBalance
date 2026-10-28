@@ -8,7 +8,8 @@ const orderRows = () =>
   within(screen.getByRole('region', { name: 'Orders to place' }))
     .getAllByRole('row')
     .slice(1, -1)
-    .map((r) => within(r).getAllByRole('cell').slice(0, 2).map((c) => c.textContent).join(' '));
+    .filter((r) => !r.classList.contains('excluded-row'))
+    .map((r) => within(r).getAllByRole('cell').slice(1, 3).map((c) => c.textContent).join(' '));
 
 describe('InvestPage', () => {
   it('splits the money and lists one order per stock', async () => {
@@ -32,8 +33,8 @@ describe('InvestPage', () => {
     expect(expected.orders.length).toBeGreaterThan(0);
     const orders = screen.getByRole('region', { name: 'Orders to place' });
     const rows = within(orders).getAllByRole('row').slice(1, -1);
-    expect(rows.map((r) => within(r).getAllByRole('cell')[0].textContent)).toEqual(expected.orders.map((o) => o.ticker));
-    rows.forEach((r, i) => expect(within(r).getAllByRole('cell')[1].textContent).toBe(String(expected.orders[i].shares)));
+    expect(rows.map((r) => within(r).getAllByRole('cell')[1].textContent)).toEqual(expected.orders.map((o) => o.ticker));
+    rows.forEach((r, i) => expect(within(r).getAllByRole('cell')[2].textContent).toBe(String(expected.orders[i].shares)));
     expect(screen.getByText(`${expected.orders.length} order${expected.orders.length === 1 ? '' : 's'}`)).toBeInTheDocument();
   });
 
@@ -175,6 +176,45 @@ describe('InvestPage', () => {
     // Turning it off keeps the amount as a typed one.
     await user.click(screen.getByRole('button', { name: 'All the rest to Investments' }));
     expect(screen.getByLabelText('New money for Investments')).toHaveValue('8,000');
+  });
+
+  it('lets the user skip a stock so its money goes to the others', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    const before = orderRows();
+    const skip = before[0].split(' ')[0];
+    await user.click(screen.getByRole('checkbox', { name: `Buy ${skip}` }));
+    expect(orderRows().some((r) => r.startsWith(`${skip} `))).toBe(false);
+    expect(screen.getByText(/Skipped this time/)).toBeInTheDocument();
+    // The rest of the money is still invested (no category is left with its budget as cash).
+    expect(screen.getByRole('checkbox', { name: `Buy ${skip}` })).not.toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: `Buy ${skip}` }));
+    expect(orderRows()).toEqual(before);
+  });
+
+  it('records something different from the recommendation, including an added stock', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    await user.click(screen.getByRole('button', { name: /record the purchase/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Record the purchase' });
+    await user.click(within(dialog).getByLabelText('I bought something different'));
+    for (const input of within(dialog).getAllByLabelText(/^Shares of .* bought$/)) {
+      await user.clear(input);
+      await user.type(input, '0');
+    }
+    await user.click(within(dialog).getByRole('button', { name: '+ Add a stock I bought instead' }));
+    await user.type(within(dialog).getByLabelText('Added stock 1'), 'amzn');
+    await user.selectOptions(within(dialog).getByLabelText('Category for added stock 1'), 'sample-kids');
+    await user.type(within(dialog).getByLabelText('Shares of added stock 1'), '2');
+    expect(within(dialog).getByText('Enter the price paid.')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('Price of added stock 1'), '200');
+    await user.click(within(dialog).getByRole('button', { name: 'Record purchase' }));
+
+    await waitFor(() => expect(savedData().transactions).toHaveLength(1));
+    const tx = savedData().transactions[0];
+    expect(tx.orders).toEqual([{ ticker: 'AMZN', shares: 2, priceUsd: 200 }]);
+    expect(tx.allocations).toEqual([{ categoryId: 'sample-kids', ticker: 'AMZN', shares: 2, costUsd: 400 }]);
+    expect(savedData().categories.find((c) => c.id === 'sample-kids')!.holdings.AMZN).toBe(2);
   });
 });
 

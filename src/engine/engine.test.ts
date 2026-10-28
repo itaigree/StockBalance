@@ -294,6 +294,23 @@ describe('planPurchase', () => {
     expect(plan.orders[0].costUsd).toBeCloseTo(100, 3);
   });
 
+  it('spreads an excluded stock’s share over the category’s other stocks', () => {
+    const c = cat('p', { A: 50, B: 30, C: 20 });
+    const plan = planPurchase(input([c], { A: 1, B: 1, C: 1 }, { p: 1000 }, { excludeTickers: ['A'] }));
+    // B and C keep their 30:20 proportion and take all the money.
+    expect(orderMap(plan)).toEqual({ B: 600, C: 400 });
+    expect(plan.categories[0].leftoverIls).toBeCloseTo(0);
+    // The real targets are still what the weights are compared with.
+    expect(plan.categories[0].after.positions.find((p) => p.ticker === 'A')!.targetPercent).toBe(50);
+  });
+
+  it('keeps the money as cash when every stock of a category is excluded', () => {
+    const plan = planPurchase(input([cat('p', { A: 100 }), cat('q', { B: 100 })], { A: 1, B: 1 }, { p: 100, q: 100 }, { excludeTickers: ['A'] }));
+    expect(orderMap(plan)).toEqual({ B: 100 });
+    expect(plan.categories[0].leftoverIls).toBe(100);
+    expect(plan.warnings.join(' ')).toMatch(/p: all its stocks are excluded/);
+  });
+
   it('returns errors instead of orders for invalid input', () => {
     const c = cat('p', { A: 100 });
     expect(planPurchase({ ...input([c], { A: 1 }, { p: 10 }), usdIls: 0 }).errors).toHaveLength(1);
@@ -352,6 +369,21 @@ describe('ledger', () => {
     expect(() => transactionFromPlan(plan, { ...executed, orders: [{ ticker: 'QQQ', shares: 1, priceUsd: 1 }] }, 'x')).toThrow(/not part/);
     expect(() => transactionFromPlan(plan, { ...executed, orders: [{ ticker: 'VOO', shares: 1, priceUsd: 0 }] }, 'x')).toThrow(/price/);
     expect(() => transactionFromPlan(plan, { ...executed, usdIls: 0 }, 'x')).toThrow(/exchange rate/);
+  });
+
+  it('records a stock that was not in the plan for the chosen category', () => {
+    const tx = transactionFromPlan(
+      plan,
+      { ...executed, orders: [...executed.orders, { ticker: 'qqq', shares: 2, priceUsd: 500, categoryId: 'kids' }] },
+      'tx3',
+    );
+    expect(tx.orders.at(-1)).toEqual({ ticker: 'QQQ', shares: 2, priceUsd: 500 });
+    expect(tx.allocations.filter((a) => a.ticker === 'QQQ')).toEqual([{ categoryId: 'kids', ticker: 'QQQ', shares: 2, costUsd: 1000 }]);
+    const kidsSpent = tx.allocations.filter((a) => a.categoryId === 'kids').reduce((s, a) => s + a.costUsd, 0);
+    expect(tx.cash.find((c) => c.categoryId === 'kids')!.spentIls).toBeCloseTo(kidsSpent, 2);
+    expect(() => transactionFromPlan(plan, { ...executed, orders: [{ ticker: 'QQQ', shares: 1, priceUsd: 1 }] }, 'x')).toThrow(
+      /choose which category/,
+    );
   });
 
   it('applies and reverts holdings and cash', () => {

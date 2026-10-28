@@ -31,12 +31,14 @@ export function InvestPage() {
   const [maxTickers, setMaxTickers] = useState<number | null>(restored ? restored.maxTickers : settings.maxTickersPerPurchase);
   const [feePercent, setFeePercent] = useState<number | null>(restored ? restored.feePercent : settings.fxFeePercent);
   const [rateOverride, setRateOverride] = useState<number | null>(restored?.rateOverride ?? null);
+  /** Stocks unticked in the orders list: skipped this time, their money goes to the other stocks. */
+  const [excluded, setExcluded] = useState<string[]>(restored?.excluded ?? []);
   /** The restored plan, shown instead of recalculating until the user changes something. */
   const [frozen, setFrozen] = useState<SavedPlan | null>(draft?.saved ?? null);
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
 
-  const inputs: InvestInputs = { total, overrides, restId, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride };
+  const inputs: InvestInputs = { total, overrides, restId, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride, excluded };
   const inputsKey = JSON.stringify(inputs);
   const lastInputsKey = useRef(inputsKey);
   useEffect(() => {
@@ -70,6 +72,7 @@ export function InvestPage() {
     wholeShares,
     minOrderUsd: minOrder ?? 0,
     maxTickers: maxTickers === null ? null : maxTickers,
+    excludeTickers: excluded,
   };
   const optionsValid =
     (minOrder === null || minOrder >= 0) &&
@@ -121,6 +124,7 @@ export function InvestPage() {
     setTotal(null);
     setOverrides({});
     setRestId(null);
+    setExcluded([]);
     window.scrollTo?.(0, 0);
   };
 
@@ -370,6 +374,8 @@ export function InvestPage() {
           wholeShares={wholeShares}
           onRecord={() => setRecording(true)}
           onKeepCash={Object.values(shown.newMoneyIls).some((v) => v > 0) ? keepAsCash : undefined}
+          excluded={excluded}
+          onToggleExclude={(t) => setExcluded((xs) => (xs.includes(t) ? xs.filter((x) => x !== t) : [...xs, t].sort()))}
         />
       )}
 

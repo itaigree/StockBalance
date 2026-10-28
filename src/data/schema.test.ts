@@ -48,6 +48,17 @@ describe('parseAppData', () => {
     expect(Object.keys(r.data.prices)).toEqual(['VOO']);
   });
 
+  it('keeps target groups', () => {
+    const r = parseAppData({
+      version: 1,
+      categories: [{ ...minimalCategory, targets: [{ ticker: 'amzn', percent: 5, group: ' Corporates ' }, { ticker: 'VOO', percent: 95 }] }],
+    });
+    expect(r.ok && r.data.categories[0].targets).toEqual([
+      { ticker: 'AMZN', percent: 5, group: 'Corporates' },
+      { ticker: 'VOO', percent: 95 },
+    ]);
+  });
+
   it('drops invalid cached prices and FX instead of failing', () => {
     const r = parseAppData({
       version: 1,

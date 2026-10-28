@@ -14,6 +14,8 @@ export interface InvestInputs {
   maxTickers: number | null;
   feePercent: number | null;
   rateOverride: number | null;
+  /** Stocks the user unticked for this purchase (optional: older drafts don't have it). */
+  excluded?: string[];
 }
 
 /** A plan as it was shown, with what is needed to record it later. */

@@ -53,4 +53,24 @@ describe('PortfolioPage', () => {
     expect(screen.getByText(/1 missing \(GLD\)/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Enter price' }).length).toBeGreaterThan(0);
   });
+
+  it('shows a group of stocks with its combined weight', () => {
+    const data = sample();
+    data.categories[2] = {
+      ...data.categories[2],
+      targets: [
+        { ticker: 'QQQ', percent: 50 },
+        { ticker: 'VOO', percent: 30 },
+        { ticker: 'GLD', percent: 10, group: 'Safe' },
+        { ticker: 'AAPL', percent: 10, group: 'Safe' },
+      ],
+    };
+    renderApp('portfolio', data);
+    const investments = screen.getByRole('region', { name: 'Investments' });
+    const row = within(investments).getByText('Safe').closest('tr')!;
+    // GLD 6 × $300 + AAPL 5 × $230 = $2,950 → 20% target.
+    expect(within(row).getByText('$2,950.00')).toBeInTheDocument();
+    expect(within(row).getByText('20.0%')).toBeInTheDocument();
+  });
 });
+

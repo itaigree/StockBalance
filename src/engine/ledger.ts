@@ -17,14 +17,20 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
   const allocations: TransactionAllocation[] = [];
   for (const o of executed.orders) {
     const ticker = o.ticker.trim().toUpperCase();
-    if (!planned.has(ticker)) throw new Error(`${ticker} is not part of this plan.`);
+    if (!ticker) throw new Error('A stock is missing its ticker.');
+    if (o.categoryId === undefined && !planned.has(ticker)) {
+      throw new Error(`${ticker} is not part of this plan; choose which category it is for.`);
+    }
     if (!(Number.isFinite(o.shares) && o.shares >= 0)) throw new Error(`${ticker}: the number of shares must be 0 or more.`);
     if (o.shares === 0) continue;
     if (!(Number.isFinite(o.priceUsd) && o.priceUsd > 0)) throw new Error(`${ticker}: the price must be more than 0.`);
 
-    const owners = plan.categories
-      .map((c) => ({ id: c.categoryId, shares: c.buys.find((b) => b.ticker === ticker)?.shares ?? 0 }))
-      .filter((c) => c.shares > 0);
+    const owners =
+      o.categoryId !== undefined
+        ? [{ id: o.categoryId, shares: 1 }]
+        : plan.categories
+            .map((c) => ({ id: c.categoryId, shares: c.buys.find((b) => b.ticker === ticker)?.shares ?? 0 }))
+            .filter((c) => c.shares > 0);
     if (owners.length === 0) throw new Error(`${ticker}: no category planned to buy it.`);
     const split = apportion(o.shares, owners.map((c) => c.shares), SHARE_DECIMALS);
     owners.forEach((c, i) => {
@@ -35,7 +41,13 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
     orders.push({ ticker, shares: o.shares, priceUsd: o.priceUsd });
   }
 
-  const ids = [...new Set([...plan.categories.map((c) => c.categoryId), ...Object.keys(executed.newMoneyIls)])];
+  const ids = [
+    ...new Set([
+      ...plan.categories.map((c) => c.categoryId),
+      ...Object.keys(executed.newMoneyIls),
+      ...allocations.map((a) => a.categoryId),
+    ]),
+  ];
   const cash: TransactionCategoryCash[] = [];
   for (const categoryId of ids) {
     const newMoneyIls = executed.newMoneyIls[categoryId] ?? 0;

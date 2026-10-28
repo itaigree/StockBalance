@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Category } from '../types';
 import type { CategoryPlan, PlanResult } from '../engine';
 import { fmtIls, fmtPercent, fmtShares, fmtUsd } from '../lib/format';
+import { groupOf } from '../lib/targetGroups';
 import { WeightBar } from './WeightBar';
 import './PlanResultView.css';
 
@@ -12,10 +13,13 @@ interface Props {
   onRecord: () => void;
   /** When nothing can be bought: record the new money as cash in its categories. */
   onKeepCash?: () => void;
+  /** Stocks the user unticked: not bought this time, their money goes to the other stocks. */
+  excluded: string[];
+  onToggleExclude: (ticker: string) => void;
 }
 
 /** The answer to "what should I buy": headline, consolidated orders, and per-category details. */
-export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeepCash }: Props) {
+export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeepCash, excluded, onToggleExclude }: Props) {
   const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
   const byId = new Map(categories.map((c) => [c.id, c]));
   const funded = plan.categories.filter((c) => c.budgetIls > 0);
@@ -98,7 +102,7 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
             )}
           </section>
 
-          {plan.orders.length > 0 && (
+          {(plan.orders.length > 0 || excluded.length > 0) && (
             <section className="card" aria-labelledby="orders-title">
               <div className="card-header">
                 <h2 id="orders-title">Orders to place</h2>
@@ -110,6 +114,9 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
                 <table className="orders">
                   <thead>
                     <tr>
+                      <th className="check-col">
+                        <span className="visually-hidden">Include</span>
+                      </th>
                       <th>Buy</th>
                       <th className="num">Shares</th>
                       <th className="num">About</th>
@@ -120,6 +127,15 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
                   <tbody>
                     {plan.orders.map((o) => (
                       <tr key={o.ticker}>
+                        <td className="check-col">
+                          <input
+                            type="checkbox"
+                            checked
+                            aria-label={`Buy ${o.ticker}`}
+                            title="Untick to skip this stock; its money goes to the other stocks"
+                            onChange={() => onToggleExclude(o.ticker)}
+                          />
+                        </td>
                         <td className="ticker">{o.ticker}</td>
                         <td className="num order-shares">{fmtShares(o.shares)}</td>
                         <td className="num">{fmtUsd(o.priceUsd)}</td>
@@ -142,9 +158,21 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
                         </td>
                       </tr>
                     ))}
+                    {excluded.map((t) => (
+                      <tr key={t} className="excluded-row">
+                        <td className="check-col">
+                          <input type="checkbox" checked={false} aria-label={`Buy ${t}`} onChange={() => onToggleExclude(t)} />
+                        </td>
+                        <td className="ticker">{t}</td>
+                        <td colSpan={4} className="muted small-text">
+                          Skipped this time — its money goes to the other stocks
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                   <tfoot>
                     <tr>
+                      <td />
                       <td>Total</td>
                       <td />
                       <td />
@@ -158,9 +186,11 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
                 Prices are the latest known ones; the real price when you buy may be a little different. Afterwards,
                 record what you actually bought so your holdings stay correct.
               </p>
-              <button type="button" onClick={onRecord}>
-                I placed these orders — record the purchase
-              </button>
+              {plan.orders.length > 0 && (
+                <button type="button" onClick={onRecord}>
+                  I placed these orders — record the purchase
+                </button>
+              )}
             </section>
           )}
 
@@ -232,7 +262,10 @@ function CategoryPlanCard({ plan, category }: { plan: CategoryPlan; category: Ca
               const before = beforeOf.get(p.ticker);
               return (
                 <tr key={p.ticker} className={b ? 'buying' : undefined}>
-                  <td className="ticker">{p.ticker}</td>
+                  <td>
+                    <span className="ticker">{p.ticker}</span>
+                    {category && groupOf(category, p.ticker) && <div className="muted small-text">{groupOf(category, p.ticker)}</div>}
+                  </td>
                   <td className="num">{b ? fmtShares(b.shares) : <span className="muted">—</span>}</td>
                   <td className="num hide-sm">{b ? fmtUsd(b.costUsd) : ''}</td>
                   <td className="bar-col hide-sm">

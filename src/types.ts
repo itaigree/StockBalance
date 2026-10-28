@@ -25,6 +25,11 @@ export interface TargetWeight {
   ticker: string;
   /** Desired share of the category's invested value, 0..100. A category's targets should sum to 100. */
   percent: number;
+  /**
+   * Name of the group this stock belongs to (e.g. "Corporates"). A group's stocks share its target
+   * equally; each stock's `percent` is its part of it. Only used for display and editing.
+   */
+  group?: string;
 }
 
 export interface Category {

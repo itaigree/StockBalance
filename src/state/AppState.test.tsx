@@ -47,7 +47,7 @@ describe('AppStateProvider', () => {
     await waitFor(() => expect(app.current!.data.prices.VOO?.priceUsd).toBe(100));
 
     // Delete all data, then start again with a stock that was priced before.
-    act(() => app.current!.actions.replaceData(emptyData()));
+    act(() => app.current!.actions.startOver(emptyData()));
     expect(app.current!.data.fx).toBeNull();
     act(() =>
       app.current!.actions.upsertCategory({
@@ -62,6 +62,48 @@ describe('AppStateProvider', () => {
     );
     await waitFor(() => expect(app.current!.data.prices.VOO?.priceUsd).toBe(100));
     await waitFor(() => expect(app.current!.data.fx?.usdIls).toBe(3.7));
+  });
+
+  it('fetches again after restoring a backup of the same stocks with old prices', async () => {
+    const market = fakeMarket();
+    vi.stubGlobal('fetch', market.fn);
+    saveData(sample());
+    const app = renderProvider();
+    await waitFor(() => expect(app.current!.data.prices.VOO?.priceUsd).toBe(100));
+    await waitFor(() => expect(app.current!.market.loading).toBe(false));
+    const calls = market.calls.length;
+
+    const backup = sample();
+    backup.prices.VOO = { ...backup.prices.VOO, priceUsd: 560 };
+    backup.fx = { usdIls: 3.0, asOf: '2026-09-01T10:00:00.000Z', source: 'manual' };
+    act(() => app.current!.actions.startOver(backup));
+    await waitFor(() => expect(market.calls.length).toBeGreaterThan(calls));
+    await waitFor(() => expect(app.current!.data.prices.VOO?.priceUsd).toBe(100));
+    await waitFor(() => expect(app.current!.data.fx?.usdIls).toBe(3.7));
+  });
+
+  it('after editing the data (merge, split, import) only prices new stocks, keeping typed prices', async () => {
+    const market = fakeMarket();
+    vi.stubGlobal('fetch', market.fn);
+    saveData(sample());
+    const app = renderProvider();
+    await waitFor(() => expect(app.current!.data.prices.VOO?.priceUsd).toBe(100));
+    await waitFor(() => expect(app.current!.market.loading).toBe(false));
+    act(() => app.current!.actions.setManualPrice('VOO', 999));
+    act(() => app.current!.actions.setManualFx(3.5));
+    const calls = market.calls.length;
+
+    const d = app.current!.data;
+    act(() =>
+      app.current!.actions.replaceData({
+        ...d,
+        categories: [...d.categories, { ...d.categories[0], id: 'extra', name: 'Extra', targets: [{ ticker: 'IAU', percent: 100 }], holdings: {} }],
+      }),
+    );
+    await waitFor(() => expect(app.current!.data.prices.IAU?.priceUsd).toBe(100));
+    expect(market.calls.slice(calls).map((u) => decodeURIComponent(u).match(/chart\/([^?]+)/)?.[1])).toEqual(['IAU']);
+    expect(app.current!.data.prices.VOO).toMatchObject({ priceUsd: 999, source: 'manual' });
+    expect(app.current!.data.fx).toMatchObject({ usdIls: 3.5, source: 'manual' });
   });
 
   it('takes newer data saved by another copy of the app instead of saving over it later', async () => {

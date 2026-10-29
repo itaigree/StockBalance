@@ -168,7 +168,8 @@ category shares (`q_ct`), rounded to 6 decimals with largest-remainder so they a
 A category's cost is its exact proportion of the order's cost (not the rounded shares × price, which
 could charge a fraction of an agora more than it planned to spend); `spentIls` uses the executed FX
 rate and fee and is rounded to agorot, as is `cashIls`. In the per-category purchase summary, dollar
-amounts of new money are after the conversion fee, like the amounts spent, so they compare.
+amounts of new money are after the conversion fee, like the amounts spent, so they compare, and the
+price shown for a stock is the price of its orders (not cost ÷ rounded shares).
 Applying a transaction adds the shares to `holdings` and adds `newMoneyIls − spentIls` to
 `cashIls`. Reverting does the opposite (removing tickers whose shares become ~0).
 
@@ -180,8 +181,11 @@ what it depends on in the categories: ids, targets, money rules, holdings and ca
 recorded or the inputs are cleared. It is saved again whenever anything in it changes, including the
 exchange rate. After a reload — which also refreshes prices — that saved plan is shown and recorded
 as it was, instead of a recalculation with new prices; the user can choose to recalculate. If the
-categories changed since (edited, deleted, merged, a backup restored, a purchase undone…), the saved
-plan is not used: the inputs come back and the plan is made again for the categories as they are.
+categories changed since (edited, deleted, merged, a backup restored…), the saved plan is not used:
+the inputs come back and the plan is made again for the categories as they are. If a purchase was
+recorded or undone since (e.g. in another tab), nothing is restored, and an open Invest page starts
+over, so the same money isn't planned and recorded twice. Plans saved by older versions (without
+these fingerprints) are restored when all their categories still exist.
 An empty fee means no fee; a negative amount, minimum order or fee stops planning with a message.
 
 ## Persistence
@@ -190,8 +194,10 @@ Everything is stored in the browser's `localStorage` (key `stockbalance:data`) a
 (versioned, validated with zod on load and on import). Backup = download the JSON; restore =
 import the JSON file. Nothing is sent anywhere except price/FX requests (ticker symbols only).
 When another copy of the app in the same browser (another tab, or the installed app) saves, this
-copy takes that data (the `storage` event), so it never saves its older data over it. Replacing the
-data (restore, sample, delete all) fetches prices and the exchange rate again.
+copy takes that data (the `storage` event), so it never saves its older data over it. Starting over
+with other data (restore, sample, delete all) fetches prices and the exchange rate again; editing
+the data (merge, split, import, a new stock) only prices stocks that have no price yet and leaves the
+exchange rate (and anything typed by hand) alone.
 
 Where the device can share files (phones), the backup can also go through the share sheet (Drive,
 iCloud, email…). Some browsers share only plain-text files, so it is then the same JSON named
@@ -227,7 +233,8 @@ chooses, per portfolio, an existing category (its holdings are replaced; targets
 kept), a new category (name editable; defaults to the portfolio name), or "don't import". The
 default is the category with the same name, if any. Portfolios sent to the same category are added
 together. Shares are buys minus sells; non-USD rows are skipped. Yahoo's share-class symbols are
-turned into the app's form (BRK-B → BRK.B), so they match targets typed in the app.
+turned into the app's form (BRK-B → BRK.B), so they match targets typed in the app. The same rule
+applies to every ticker typed in the app and to saved data when it loads.
 
 ## Merging and splitting categories (`mergeCategories`, `splitCategory`)
 

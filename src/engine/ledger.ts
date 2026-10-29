@@ -1,4 +1,5 @@
 import type { Category, Transaction, TransactionAllocation, TransactionCategoryCash } from '../types';
+import { normalizeTicker } from '../lib/format';
 import { apportion } from './apportion';
 import type { ExecutedPurchase, PlanResult } from './types';
 
@@ -16,7 +17,7 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
   const orders: Transaction['orders'] = [];
   const allocations: TransactionAllocation[] = [];
   for (const o of executed.orders) {
-    const ticker = o.ticker.trim().toUpperCase();
+    const ticker = normalizeTicker(o.ticker);
     if (!ticker) throw new Error('A stock is missing its ticker.');
     if (o.categoryId === undefined && !planned.has(ticker)) {
       throw new Error(`${ticker} is not part of this plan; choose which category it is for.`);

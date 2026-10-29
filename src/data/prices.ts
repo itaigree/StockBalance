@@ -94,11 +94,6 @@ export function yahooSymbol(ticker: string): string {
   return ticker.replace(/\.([ABC])$/, '-$1');
 }
 
-/** The app's form of a Yahoo symbol: share classes use a dot (BRK-B → BRK.B). */
-export function fromYahooSymbol(symbol: string): string {
-  return symbol.replace(/-([ABC])$/, '.$1');
-}
-
 async function yahooOne(
   ticker: string,
   proxyUrl: string,

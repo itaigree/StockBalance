@@ -106,4 +106,25 @@ describe('categoryPurchaseSummary', () => {
     expect(s.totals.leftoverIls).toBe(0);
     expect(s.totals.leftoverUsd).toBeCloseTo(0, 9);
   });
+
+  it('shows the price that was paid when a share is split between categories', () => {
+    // One $3,000 share split three ways: a's part is rounded to 0.333334 shares but costs exactly $1,000.
+    const tx: Transaction = {
+      id: 'split',
+      date: '2026-01-01T12:00:00.000Z',
+      usdIls: 3.7,
+      fxFeePercent: 0,
+      orders: [{ ticker: 'VTI', shares: 1, priceUsd: 3000 }],
+      allocations: [
+        { categoryId: 'eitan', ticker: 'VTI', shares: 0.333334, costUsd: 1000 },
+        { categoryId: 'b', ticker: 'VTI', shares: 0.333333, costUsd: 1000 },
+        { categoryId: 'c', ticker: 'VTI', shares: 0.333333, costUsd: 1000 },
+      ],
+      cash: [{ categoryId: 'eitan', newMoneyIls: 3700, spentIls: 3700 }],
+    };
+    const s = categoryPurchaseSummary(eitan, [tx]);
+    expect(s.rows[0].buys.VTI.priceUsd).toBe(3000);
+    expect(s.totals.avgPriceUsd.VTI).toBeCloseTo(3000, 9);
+    expect(s.totals.spentUsd).toBe(1000);
+  });
 });

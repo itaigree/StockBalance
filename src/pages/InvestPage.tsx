@@ -5,7 +5,16 @@ import { priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
 import { fmtAgo, fmtDateTime, fmtIls, fmtRate, fmtUsd, isZeroMoney } from '../lib/format';
 import { newId } from '../lib/ids';
-import { categoriesKey, clearDraft, loadDraft, saveDraft, type InvestInputs, type SavedPlan } from '../lib/investDraft';
+import {
+  categoriesKey,
+  clearDraft,
+  loadDraft,
+  planStillFits,
+  saveDraft,
+  usableDraft,
+  type InvestInputs,
+  type SavedPlan,
+} from '../lib/investDraft';
 import { describeRule } from '../lib/rules';
 import { MarketBar } from '../components/MarketBar';
 import { NumberField } from '../components/NumberField';
@@ -21,7 +30,8 @@ export function InvestPage() {
   const { categories, settings } = data;
 
   // A plan saved earlier (e.g. before placing the orders and reloading) is restored as it was.
-  const [draft] = useState(() => loadDraft());
+  const latestTxId = data.transactions.at(-1)?.id ?? null;
+  const [draft] = useState(() => usableDraft(loadDraft(), latestTxId));
   const restored = draft?.inputs;
   const [total, setTotal] = useState<number | null>(restored?.total ?? null);
   /** Amounts the user typed for this purchase (category id → ILS). */
@@ -43,12 +53,26 @@ export function InvestPage() {
    */
   const catsKey = categoriesKey(categories);
   const [frozen, setFrozen] = useState<SavedPlan | null>(() =>
-    draft?.saved.categoriesKey === catsKey ? draft.saved : null,
+    draft && planStillFits(draft.saved, categories) ? draft.saved : null,
   );
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
   const [undoing, setUndoing] = useState(false);
   const lastTx = data.transactions.at(-1);
+
+  // A purchase recorded or undone elsewhere (e.g. in another tab) while this page is open: start
+  // over, so the same money isn't planned — and recorded — twice.
+  const seenTxId = useRef(latestTxId);
+  useEffect(() => {
+    if (seenTxId.current === latestTxId) return;
+    seenTxId.current = latestTxId;
+    setFrozen(null);
+    setTotal(null);
+    setOverrides({});
+    setRestId(null);
+    setExcluded([]);
+    clearDraft();
+  }, [latestTxId]);
   const backup = useBackup();
   const [backedUp, setBackedUp] = useState(false);
 
@@ -138,14 +162,22 @@ export function InvestPage() {
   const planKey = livePlan && shown ? JSON.stringify({ ...shown, savedAt: '' }) : '';
   const inputsOk = optionsValid && amountsValid;
   useEffect(() => {
-    if (frozen || !inputsOk) return;
+    if (frozen) return;
+    if (!started) {
+      clearDraft();
+      return;
+    }
+    if (!inputsOk) return;
     if (!shown || shown.plan.errors.length > 0 || shown.plan.orders.length === 0) {
       clearDraft();
       return;
     }
-    saveDraft({ inputs, saved: { ...shown, savedAt: new Date().toISOString(), categoriesKey: catsKey } });
-    // `inputs`, `shown` and the categories are fully described by these keys.
-  }, [frozen, inputsOk, inputsKey, planKey]);
+    saveDraft({
+      inputs,
+      saved: { ...shown, savedAt: new Date().toISOString(), categoriesKey: catsKey, lastTxId: latestTxId },
+    });
+    // `inputs`, `shown`, the categories and the purchases are fully described by these keys.
+  }, [frozen, started, inputsOk, inputsKey, planKey, latestTxId]);
 
   const afterRecording = (kind: 'purchase' | 'cash') => {
     setRecording(false);

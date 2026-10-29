@@ -69,6 +69,26 @@ describe('parseAppData', () => {
     expect(r.ok && r.data.fx).toBeNull();
   });
 
+  it('loads share classes the way the app writes them (BRK-B → BRK.B)', () => {
+    const r = parseAppData({
+      version: 1,
+      categories: [
+        {
+          id: 'p',
+          name: 'P',
+          color: '#000',
+          targets: [{ ticker: 'brk-b', percent: 100 }],
+          holdings: { 'BRK-B': 3, 'BRK.B': 1 },
+          cashIls: 0,
+          contribution: { kind: 'none' },
+        },
+      ],
+      prices: { 'BRK-B': { priceUsd: 500, asOf: '2026-01-01T00:00:00.000Z', source: 'manual' } },
+    });
+    expect(r.ok && r.data.categories[0]).toMatchObject({ targets: [{ ticker: 'BRK.B', percent: 100 }], holdings: { 'BRK.B': 4 } });
+    expect(r.ok && Object.keys(r.data.prices)).toEqual(['BRK.B']);
+  });
+
   it('falls back to defaults for invalid settings', () => {
     const r = parseAppData({
       version: 1,

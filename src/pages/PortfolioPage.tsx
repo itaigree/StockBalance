@@ -111,8 +111,7 @@ function Welcome() {
           onClick={() => {
             // Keep the user's settings (price source, API key, fee).
             const sample = { ...sampleData(), settings: data.settings };
-            actions.replaceData(sample);
-            void actions.refreshMarket(allTickers(sample.categories));
+            actions.startOver(sample);
           }}
         >
           Load sample data

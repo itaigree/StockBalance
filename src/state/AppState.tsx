@@ -78,7 +78,13 @@ export interface MarketStatus {
 }
 
 export interface AppActions {
+  /** Replace the data with an edited version of it (merge, split, import). */
   replaceData(data: AppData): void;
+  /**
+   * Replace everything with data from elsewhere (a backup, the sample, or nothing): prices and the
+   * exchange rate are fetched again for it.
+   */
+  startOver(data: AppData): void;
   upsertCategory(category: Category): void;
   deleteCategory(id: Id): void;
   moveCategory(id: Id, delta: -1 | 1): void;
@@ -160,6 +166,8 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
   /** Tickers already requested this session, so failing ones aren't retried on every change. */
   const requested = useRef(new Set<string>());
   const refreshedOnce = useRef(false);
+  /** Bumped by `startOver`, so the refresh below runs even when the stocks are the same. */
+  const [generation, setGeneration] = useState(0);
   const inFlight = useRef(0);
 
   const refreshMarket = useCallback(async (tickers?: string[]) => {
@@ -172,11 +180,12 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
     setMarket((m) => ({ ...m, loading: true }));
     const [priceResult, fxResult] = await Promise.all([
       fetchPrices(list, current.settings),
-      fetchUsdIls(current.settings),
+      // Pricing some tickers (stocks just added) leaves the exchange rate alone, e.g. one typed by hand.
+      tickers ? Promise.resolve(null) : fetchUsdIls(current.settings),
     ]);
     inFlight.current--;
     if (Object.keys(priceResult.quotes).length > 0) dispatch({ type: 'setPrices', quotes: priceResult.quotes });
-    if ('quote' in fxResult) dispatch({ type: 'setFx', fx: fxResult.quote });
+    if (fxResult && 'quote' in fxResult) dispatch({ type: 'setFx', fx: fxResult.quote });
     setMarket((m) => {
       // A refresh of some tickers only replaces what is known about those tickers.
       const failures = tickers ? { ...m.priceFailures } : {};
@@ -185,7 +194,7 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
         loading: inFlight.current > 0,
         lastRun: new Date().toISOString(),
         priceFailures: { ...failures, ...priceResult.failures },
-        fxError: 'error' in fxResult ? fxResult.error : null,
+        fxError: fxResult === null ? m.fxError : 'error' in fxResult ? fxResult.error : null,
       };
     });
   }, []);
@@ -204,15 +213,17 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
     if (d.settings.priceProvider === 'manual') return;
     const missing = allTickers(d.categories).filter((t) => !(d.prices[t]?.priceUsd > 0) && !requested.current.has(t));
     if (missing.length > 0) void refreshMarket(missing);
-  }, [tickersKey, refreshMarket, initialData]);
+  }, [tickersKey, generation, refreshMarket, initialData]);
 
   const actions = useMemo<AppActions>(
     () => ({
-      replaceData: (d) => {
+      replaceData: (d) => dispatch({ type: 'replace', data: d }),
+      startOver: (d) => {
         // New data: fetch everything again (prices and the exchange rate) once it has stocks.
         requested.current.clear();
         refreshedOnce.current = false;
         dispatch({ type: 'replace', data: d });
+        setGeneration((g) => g + 1);
       },
       upsertCategory: (category) => dispatch({ type: 'upsertCategory', category }),
       deleteCategory: (id) => dispatch({ type: 'deleteCategory', id }),

@@ -79,9 +79,15 @@ export function isTicker(s: string): boolean {
   return /^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$/.test(s);
 }
 
-/** Trim and upper-case a ticker symbol. */
+/**
+ * Trim and upper-case a ticker symbol, writing share classes with a dot (BRK-B → BRK.B, Yahoo's form
+ * → the app's), so the same stock has one ticker everywhere.
+ */
 export function normalizeTicker(s: string): string {
-  return s.trim().toUpperCase();
+  return s
+    .trim()
+    .toUpperCase()
+    .replace(/-([ABC])$/, '.$1');
 }
 
 /**

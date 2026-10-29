@@ -1,4 +1,8 @@
-import { screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { App } from '../App';
+import { AppStateProvider } from '../state/AppState';
 import { describe, expect, it, vi } from 'vitest';
 import { serializeBackup } from '../data/backup';
 import { YAHOO_CSV } from '../data/importCsv.fixture';
@@ -64,6 +68,20 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('Type DELETE to confirm')).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(open).toHaveFocus();
+  });
+
+  it('puts focus on the dialog’s first field also when React runs effects twice (development)', async () => {
+    const user = userEvent.setup();
+    window.location.hash = '#/settings';
+    render(
+      <StrictMode>
+        <AppStateProvider initialData={sample()}>
+          <App />
+        </AppStateProvider>
+      </StrictMode>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Delete all data' }));
+    expect(screen.getByLabelText('Type DELETE to confirm')).toHaveFocus();
   });
 
   it('starts the delete confirmation empty every time', async () => {

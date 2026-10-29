@@ -31,6 +31,25 @@ export interface SavedPlan {
   fxFeePercent: number;
   /** `categoriesKey` of the categories the plan was made for (missing in older drafts). */
   categoriesKey?: string;
+  /** Id of the newest purchase when the plan was made (missing in older drafts). */
+  lastTxId?: string | null;
+}
+
+/**
+ * The saved draft if it still applies: no purchase was recorded or undone since it was made (else
+ * its money may already be spent). Drafts from older versions don't know, and are kept.
+ */
+export function usableDraft(draft: InvestDraft | null, latestTxId: string | null): InvestDraft | null {
+  if (!draft) return null;
+  return draft.saved.lastTxId === undefined || draft.saved.lastTxId === latestTxId ? draft : null;
+}
+
+/** Whether a saved plan can be shown and recorded as it was: its categories haven't changed since. */
+export function planStillFits(saved: SavedPlan, categories: Category[]): boolean {
+  if (saved.categoriesKey !== undefined) return saved.categoriesKey === categoriesKey(categories);
+  // Saved by an older version, without a fingerprint: every category it plans for must still exist.
+  const ids = new Set(categories.map((c) => c.id));
+  return saved.plan.categories.every((c) => ids.has(c.categoryId));
 }
 
 /**

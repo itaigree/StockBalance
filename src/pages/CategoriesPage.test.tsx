@@ -384,6 +384,43 @@ describe('CategoriesPage', () => {
     await waitFor(() => expect(savedData().categories[1]).toMatchObject({ name: 'Children', holdings: { AAPL250117C00150000: 1 } }));
   });
 
+  it('forgets an unreadable target once its field is gone', async () => {
+    const data = sample();
+    data.categories[0] = {
+      ...data.categories[0],
+      targets: [
+        { ticker: 'VOO', percent: 50 },
+        { ticker: 'AMZN', percent: 30, group: 'Corp' },
+        { ticker: 'TSLA', percent: 20, group: 'Corp' },
+      ],
+      holdings: {},
+    };
+    const { user } = renderApp('categories', data);
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const dialog = screen.getByRole('dialog');
+    await user.clear(within(dialog).getByLabelText('Target percent, row 3'));
+    await user.type(within(dialog).getByLabelText('Target percent, row 3'), '20..');
+    // Splitting equally hides the stocks' own targets; the group gets 50%.
+    await user.selectOptions(within(dialog).getByLabelText('How group 1 is split'), 'Split equally');
+    const group = within(dialog).getByLabelText('Group target percent, group 1');
+    await user.clear(group);
+    await user.type(group, '50');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(savedData().categories[0].targets.find((t) => t.ticker === 'TSLA')).toMatchObject({ percent: 25, group: 'Corp' }));
+  });
+
+  it('writes share classes with a dot whatever is typed', async () => {
+    const { user } = renderApp('categories');
+    await user.click(screen.getByRole('button', { name: 'Add your first category' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'P');
+    await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'brk-b');
+    await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(savedData().categories[0].targets).toEqual([{ ticker: 'BRK.B', percent: 100 }]));
+  });
+
   it('validates groups', async () => {
     const { user } = renderApp('categories');
     await user.click(screen.getByRole('button', { name: 'Add your first category' }));

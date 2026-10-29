@@ -113,7 +113,12 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       else next.add(id);
       return next;
     });
-  const unreadableRow = (r: Row) => unreadable.has(`${r.key}:percent`) || unreadable.has(`${r.key}:shares`);
+  const groupOfRow = (r: Row) => groups.find((g) => g.key === r.group);
+  /** True when the row has its own target field: a single stock, or a stock in a group with targets per stock. */
+  const ownTarget = (r: Row) => !r.group || groupOfRow(r)?.equal === false;
+  // Only fields still shown count (a stock in an equally split group has no target field).
+  const unreadableRow = (r: Row) =>
+    (ownTarget(r) && unreadable.has(`${r.key}:percent`)) || unreadable.has(`${r.key}:shares`);
 
   const updateRow = (key: string, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -125,9 +130,6 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const filledMembers = (g: Group) => membersOf(g).filter((r) => r.ticker.trim() !== '');
   /** A group's target: its own percent when split equally, else the sum of its stocks' targets. */
   const groupTarget = (g: Group) => (g.equal ? (g.percent ?? 0) : membersOf(g).reduce((s, r) => s + (r.percent ?? 0), 0));
-  const groupOfRow = (r: Row) => groups.find((g) => g.key === r.group);
-  /** True when the row has its own target field: a single stock, or a stock in a group with targets per stock. */
-  const ownTarget = (r: Row) => !r.group || groupOfRow(r)?.equal === false;
   const targetTotal =
     filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) + groups.reduce((s, g) => s + groupTarget(g), 0);
   const hasTargets = filled.some((r) => !r.group && (r.percent ?? 0) > 0) || groups.some((g) => groupTarget(g) > 0);

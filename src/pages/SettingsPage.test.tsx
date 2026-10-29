@@ -31,6 +31,13 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(savedData().settings.maxTickersPerPurchase).toBe(3));
   });
 
+  it('sets how each category’s money is spent', async () => {
+    const { user } = renderApp('settings', sample());
+    expect(screen.getByRole('radio', { name: /Balance all stocks/ })).toBeChecked();
+    await user.click(screen.getByRole('radio', { name: /Fewest orders/ }));
+    await waitFor(() => expect(savedData().settings.buyStrategy).toBe('fewest'));
+  });
+
   it('downloads a backup', async () => {
     const data = sample();
     const { user } = renderApp('settings', data);

@@ -141,6 +141,23 @@ Invariants (tested with property-based tests):
 - Water-filling result equals the analytical optimum on small cases; with a budget at least the
   sum of deficits every target is met exactly (fractional mode).
 
+## Fewest orders (`PlanOptions.strategy = 'fewest'`)
+
+A preference (Settings → Purchase defaults, and per purchase on the Invest page) for buying fewer
+different stocks. Step 1 changes: instead of water-filling, each category fills the unit (single
+stock or group) furthest below its target value first — the largest gap `w_ct · T_c − V_ct`, which
+is the largest shortfall in percentage points of the category after investing — up to that target,
+then the next largest gap, until the money runs out (ties go to the earlier target). Inside a group
+its stocks are filled the same way. As with water-filling nothing is pushed above its target, and
+with fractional shares the whole budget is spent (the positive gaps add up to at least the budget).
+This uses the fewest stocks that can take the money without going over any target, so a category
+never buys more different stocks than with water-filling (property-tested).
+
+With whole shares: the top-up only adds shares to stocks the plan already chose (it never opens a
+new order for leftovers, which stay as the category's cash); and a chosen stock that can't buy even
+one share is banned and planning starts again, so its money goes to the next stock in line. Order
+limits (`maxTickers`, `minOrderUsd`) apply as before.
+
 ## Recording a purchase (`transactionFromPlan`, `applyTransaction`, `revertTransaction`)
 
 The user confirms or edits the executed shares and price of each planned order and the FX rate.

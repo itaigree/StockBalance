@@ -311,6 +311,51 @@ describe('planPurchase', () => {
     expect(plan.warnings.join(' ')).toMatch(/p: all its stocks are excluded/);
   });
 
+  describe('fewest orders', () => {
+    // A 50% / B 30% / C 20%; C is far above its target.
+    const abc = (holdings: Record<string, number>) => cat('p', { A: 50, B: 30, C: 20 }, holdings);
+    const prices = { A: 1, B: 1, C: 1 };
+
+    it('fills the stock furthest below its target first, up to its target, then the next', () => {
+      const c = abc({ A: 100, B: 100, C: 300 });
+      // Final total 900: A is 350 short, B 170 short.
+      expect(sharesOf(planPurchase(input([c], prices, { p: 400 }, { strategy: 'fewest' })), 'p')).toEqual({ A: 350, B: 50 });
+      expect(sharesOf(planPurchase(input([c], prices, { p: 300 }, { strategy: 'fewest' })), 'p')).toEqual({ A: 300 });
+      // Balancing spreads the same money over both.
+      expect(Object.keys(sharesOf(planPurchase(input([c], prices, { p: 300 })), 'p'))).toEqual(['A', 'B']);
+    });
+
+    it('fills a group’s stocks one at a time too', () => {
+      const c: Category = {
+        ...cat('p', {}, { VOO: 600 }),
+        targets: [
+          { ticker: 'VOO', percent: 80 },
+          { ticker: 'AMZN', percent: 10, group: 'Corp' },
+          { ticker: 'TSLA', percent: 10, group: 'Corp' },
+        ],
+      };
+      const plan = planPurchase(input([c], { VOO: 1, AMZN: 1, TSLA: 1 }, { p: 100 }, { strategy: 'fewest' }));
+      expect(sharesOf(plan, 'p')).toEqual({ AMZN: 70, TSLA: 30 });
+    });
+
+    it('keeps whole-share leftovers as cash rather than opening another order', () => {
+      // A is 275 short: 2 × $100 leaves $50, which won't buy another A.
+      const c = abc({ A: 1, B: 10, C: 30 });
+      const plan = planPurchase(input([c], { A: 100, B: 10, C: 10 }, { p: 250 }, { strategy: 'fewest', wholeShares: true }));
+      expect(orderMap(plan)).toEqual({ A: 2 });
+      expect(plan.categories[0].leftoverIls).toBeCloseTo(50, 9);
+      expect(Object.keys(orderMap(planPurchase(input([c], { A: 100, B: 10, C: 10 }, { p: 250 }, { wholeShares: true }))))).toContain('B');
+    });
+
+    it('passes the money on when the stock furthest below target costs more than it', () => {
+      // A is 300 short but one share costs 400, so B gets its 80 and the rest stays as cash.
+      const c = abc({ B: 10, C: 30 });
+      const plan = planPurchase(input([c], { A: 400, B: 10, C: 10 }, { p: 200 }, { strategy: 'fewest', wholeShares: true }));
+      expect(orderMap(plan)).toEqual({ B: 8 });
+      expect(plan.categories[0].leftoverIls).toBeCloseTo(120, 9);
+    });
+  });
+
   describe('groups of stocks', () => {
     // VOO 80%, "Corp" 20% split equally between AMZN and TSLA.
     const grouped = (holdings: Record<string, number>): Category => ({

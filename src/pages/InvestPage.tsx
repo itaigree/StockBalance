@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Category } from '../types';
+import type { BuyStrategy, Category } from '../types';
 import { planPurchase, splitContribution, transactionFromPlan, type PlanOptions } from '../engine';
 import { priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
@@ -11,6 +11,7 @@ import { MarketBar } from '../components/MarketBar';
 import { NumberField } from '../components/NumberField';
 import { PlanResultView } from '../components/PlanResultView';
 import { RecordPurchaseModal } from '../components/RecordPurchaseModal';
+import { BuyStrategyChoice } from '../components/BuyStrategyChoice';
 import { UndoModal } from '../components/AllPurchases';
 import { useBackup } from '../components/Backup';
 import './InvestPage.css';
@@ -35,6 +36,7 @@ export function InvestPage() {
   const [rateOverride, setRateOverride] = useState<number | null>(restored?.rateOverride ?? null);
   /** Stocks unticked in the orders list: skipped this time, their money goes to the other stocks. */
   const [excluded, setExcluded] = useState<string[]>(restored?.excluded ?? []);
+  const [strategy, setStrategy] = useState<BuyStrategy>(restored?.strategy ?? settings.buyStrategy);
   /** The restored plan, shown instead of recalculating until the user changes something. */
   const [frozen, setFrozen] = useState<SavedPlan | null>(draft?.saved ?? null);
   const [recording, setRecording] = useState(false);
@@ -44,7 +46,19 @@ export function InvestPage() {
   const backup = useBackup();
   const [backedUp, setBackedUp] = useState(false);
 
-  const inputs: InvestInputs = { total, overrides, restId, useCash, wholeShares, minOrder, maxTickers, feePercent, rateOverride, excluded };
+  const inputs: InvestInputs = {
+    total,
+    overrides,
+    restId,
+    useCash,
+    wholeShares,
+    minOrder,
+    maxTickers,
+    feePercent,
+    rateOverride,
+    excluded,
+    strategy,
+  };
   const inputsKey = JSON.stringify(inputs);
   const lastInputsKey = useRef(inputsKey);
   useEffect(() => {
@@ -79,6 +93,7 @@ export function InvestPage() {
     minOrderUsd: minOrder ?? 0,
     maxTickers: maxTickers === null ? null : maxTickers,
     excludeTickers: excluded,
+    strategy,
   };
   const optionsValid =
     (minOrder === null || minOrder >= 0) &&
@@ -164,7 +179,8 @@ export function InvestPage() {
     wholeShares !== settings.wholeShares ||
     (minOrder ?? 0) !== settings.minOrderUsd ||
     maxTickers !== settings.maxTickersPerPurchase ||
-    (feePercent ?? 0) !== settings.fxFeePercent;
+    (feePercent ?? 0) !== settings.fxFeePercent ||
+    strategy !== settings.buyStrategy;
 
   return (
     <>
@@ -318,13 +334,14 @@ export function InvestPage() {
         <summary>
           <h2>Options</h2>
           <span className="muted small-text">
-            {wholeShares ? 'Whole shares' : 'Fractional shares'} ·{' '}
+            {strategy === 'fewest' ? 'Fewest orders' : 'Balance all stocks'} · {wholeShares ? 'whole shares' : 'fractional shares'} ·{' '}
             {minOrder ? `orders of at least ${fmtUsd(minOrder, true)}` : 'no minimum order'} ·{' '}
             {maxTickers ? `at most ${maxTickers} different stock${maxTickers === 1 ? '' : 's'}` : 'any number of stocks'} · rate{' '}
             {usdIls ? fmtRate(usdIls) : '—'}
             {feePercent ? ` + ${feePercent}% fee` : ''}
           </span>
         </summary>
+        <BuyStrategyChoice name="strategy" value={strategy} onChange={setStrategy} />
         <div className="options-grid">
           <label className="checkbox">
             <input type="checkbox" checked={wholeShares} onChange={(e) => setWholeShares(e.target.checked)} />
@@ -372,6 +389,7 @@ export function InvestPage() {
                 minOrderUsd: minOrder ?? 0,
                 maxTickersPerPurchase: maxTickers,
                 fxFeePercent: feePercent ?? 0,
+                buyStrategy: strategy,
               })
             }
           >

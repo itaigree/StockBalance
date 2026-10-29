@@ -70,8 +70,13 @@ describe('parseAppData', () => {
   });
 
   it('falls back to defaults for invalid settings', () => {
-    const r = parseAppData({ version: 1, settings: { priceProvider: 'bogus', minOrderUsd: -5, maxTickersPerPurchase: 0, wholeShares: false } });
+    const r = parseAppData({
+      version: 1,
+      settings: { priceProvider: 'bogus', minOrderUsd: -5, maxTickersPerPurchase: 0, wholeShares: false, buyStrategy: 'cheapest' },
+    });
     expect(r.ok && r.data.settings).toEqual({ ...DEFAULT_SETTINGS, wholeShares: false });
+    const fewest = parseAppData({ version: 1, settings: { buyStrategy: 'fewest' } });
+    expect(fewest.ok && fewest.data.settings.buyStrategy).toBe('fewest');
   });
 
   it('rejects bad data with a message that says where', () => {

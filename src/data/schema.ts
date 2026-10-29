@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wholeShares: true,
   minOrderUsd: 0,
   maxTickersPerPurchase: null,
+  buyStrategy: 'balance',
 };
 
 export function emptyData(): AppData {
@@ -71,6 +72,7 @@ const settings = z.object({
   wholeShares: z.boolean().catch(DEFAULT_SETTINGS.wholeShares),
   minOrderUsd: z.number().min(0).catch(DEFAULT_SETTINGS.minOrderUsd),
   maxTickersPerPurchase: z.number().int().min(1).nullable().catch(DEFAULT_SETTINGS.maxTickersPerPurchase),
+  buyStrategy: z.enum(['balance', 'fewest']).catch(DEFAULT_SETTINGS.buyStrategy),
 });
 
 const transaction = z.object({

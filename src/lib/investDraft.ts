@@ -1,3 +1,4 @@
+import type { BuyStrategy } from '../types';
 import type { PlanResult } from '../engine';
 
 const KEY = 'stockbalance:invest-draft';
@@ -16,6 +17,8 @@ export interface InvestInputs {
   rateOverride: number | null;
   /** Stocks the user unticked for this purchase (optional: older drafts don't have it). */
   excluded?: string[];
+  /** How each category's money is spread (optional: older drafts don't have it). */
+  strategy?: BuyStrategy;
 }
 
 /** A plan as it was shown, with what is needed to record it later. */

@@ -287,6 +287,31 @@ describe('CategoriesPage', () => {
       expect(within(screen.getByRole('dialog')).getByLabelText('Group target percent, group 1')).toHaveValue('20');
     });
 
+    it('makes a group from the category’s stocks, without leaving a blank row', async () => {
+      const { user } = renderApp('categories', sample());
+      const dialog = await openEditor(user);
+      await user.click(within(dialog).getByRole('button', { name: '+ Add group' }));
+      const box = within(dialog).getByRole('group', { name: /Group/ });
+      await user.type(within(box).getByLabelText('Group name, group 1'), 'Abroad');
+      const moveIn = within(box).getByRole('combobox', { name: "Move one of the category's stocks into the group" });
+      await user.selectOptions(moveIn, 'VXUS (25%)');
+      await user.selectOptions(moveIn, 'BND (15%)');
+      expect(within(box).getByLabelText('Group target percent, group 1')).toHaveValue('40');
+      expect(within(box).getAllByRole('textbox', { name: /^Ticker, row/ }).map((x) => (x as HTMLInputElement).value)).toEqual([
+        'VXUS',
+        'BND',
+      ]);
+      await user.click(within(box).getByRole('button', { name: 'Done' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await waitFor(() =>
+        expect(savedData().categories[0].targets).toEqual([
+          { ticker: 'VOO', percent: 60 },
+          { ticker: 'VXUS', percent: 20, group: 'Abroad' },
+          { ticker: 'BND', percent: 20, group: 'Abroad' },
+        ]),
+      );
+    });
+
     it('splits a group by each stock’s share of the group, adding up to 100%', async () => {
       const { user } = renderApp(
         'categories',

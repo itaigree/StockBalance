@@ -287,6 +287,10 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       );
     } else updateRow(r.key, { group: g.key, percent: null });
     if (t > 0) updateGroup(g.key, { percent: after });
+    // A new group's blank first row isn't needed once a stock is moved in.
+    setRows((rs) =>
+      rs.filter((x) => !(x.group === g.key && x.ticker.trim() === '' && x.shares === null && x.percent === null)),
+    );
   };
   /**
    * Take a stock out of its group: it becomes a single stock with its part of the group's target, the

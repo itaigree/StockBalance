@@ -55,8 +55,13 @@ describe('CategoryPage', () => {
     await waitFor(() => expect(savedData().categories[1].name).toBe('Noa'));
   });
 
-  it('says so when the category no longer exists', () => {
+  it('says so when the category no longer exists, also for a broken link', () => {
     renderApp('category/gone', sample());
+    expect(screen.getByText(/This category no longer exists/)).toBeInTheDocument();
+  });
+
+  it('does not crash on a link with a broken % escape', () => {
+    renderApp('category/100%', sample());
     expect(screen.getByText(/This category no longer exists/)).toBeInTheDocument();
   });
 });

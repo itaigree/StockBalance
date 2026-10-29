@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppState';
 import { canShareBackup, downloadBackup, shareableBackupFile, shareBackupFile } from '../data/backup';
-import { backupReminder, loadBackupMark, markBackedUp, snoozeBackupReminder, type BackupMark } from '../data/backupMark';
+import {
+  backupReminder,
+  clearBackupMark,
+  loadBackupMark,
+  markBackedUp,
+  snoozeBackupReminder,
+  type BackupMark,
+} from '../data/backupMark';
 import { fmtAgo } from '../lib/format';
 
 /** True on touch devices (phones, tablets), where sharing the file is the natural way to keep it. */
@@ -52,6 +59,11 @@ export function useBackup() {
     share,
     backUp: async (): Promise<boolean> => (canShare && touchDevice() ? share() : download()),
     snooze: () => setMark(snoozeBackupReminder(mark)),
+    /** Forget the last backup (after deleting all data). */
+    forget: () => {
+      clearBackupMark();
+      setMark({});
+    },
   };
 }
 

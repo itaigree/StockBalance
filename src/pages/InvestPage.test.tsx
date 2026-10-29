@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { planPurchase } from '../engine';
 import { priceMap } from '../state/AppState';
@@ -168,6 +168,147 @@ describe('InvestPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: "Recalculate with today's prices" }));
     expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+  });
+
+  it('does not bring back a saved plan once the categories changed', async () => {
+    const first = renderApp('invest', sample());
+    await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    first.unmount();
+
+    // Kids now gets ₪3,000 first.
+    const edited = sample();
+    edited.categories[1] = { ...edited.categories[1], contribution: { kind: 'fixed', amountIls: 3000 } };
+    const second = renderApp('invest', edited);
+    expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('10,000');
+    expect(screen.getByLabelText('New money for Kids')).toHaveValue('3,000');
+    await second.user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+    await second.user.click(screen.getByRole('button', { name: 'Record purchase' }));
+    await waitFor(() => expect(savedData().transactions).toHaveLength(1));
+    expect(savedData().transactions[0].cash.find((c) => c.categoryId === 'sample-kids')!.newMoneyIls).toBe(3000);
+    second.unmount();
+
+    // A deleted category: the plan is made again for the categories there are.
+    const third = renderApp('invest', sample());
+    await third.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    third.unmount();
+    const withoutKids = sample();
+    withoutKids.categories = withoutKids.categories.filter((c) => c.id !== 'sample-kids');
+    renderApp('invest', withoutKids);
+    expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+    expect(screen.queryByText('(deleted category)')).not.toBeInTheDocument();
+  });
+
+  it('saves the plan again when the exchange rate changes', async () => {
+    // One category, so a small rate change leaves every share (and how it is split) the same.
+    const data = sample();
+    data.categories = [{ ...data.categories[1], contribution: { kind: 'remainder' } }];
+    const first = renderApp('invest', data);
+    await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    await first.user.click(screen.getByRole('button', { name: 'edit' }));
+    const rate = screen.getByLabelText('USD/ILS rate');
+    await first.user.clear(rate);
+    // A small change that buys the same whole shares, only at a different cost in shekels.
+    const orders = orderRows();
+    await first.user.type(rate, '3.69');
+    await first.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(orderRows()).toEqual(orders);
+    await waitFor(() => expect(JSON.parse(window.localStorage.getItem('stockbalance:invest-draft')!).saved.usdIls).toBe(3.69));
+  });
+
+  it('treats an empty fee as no fee and explains invalid amounts and options', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    await user.click(screen.getByText('Options'));
+    await user.clear(screen.getByLabelText(/^Currency conversion fee/));
+    expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/^Minimum order/));
+    await user.type(screen.getByLabelText(/^Minimum order/), '-5');
+    expect(screen.queryByRole('region', { name: 'Orders to place' })).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Check the Options/);
+    expect(screen.getByText('0 or more (or empty).')).toBeInTheDocument();
+    await user.clear(screen.getByLabelText(/^Minimum order/));
+
+    // A negative amount for a category isn't planned or recorded.
+    const kids = screen.getByLabelText('New money for Kids');
+    await user.clear(kids);
+    await user.type(kids, '-500');
+    expect(screen.queryByRole('region', { name: 'Orders to place' })).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/below 0/);
+    expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a typed rate as typed, even after emptying the field', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    await user.click(screen.getByText('Options'));
+    const rate = screen.getByLabelText(/^USD\/ILS rate for this purchase/);
+    // Deleting one character at a time: 3.7 → 3. → 3 → empty (which means "the latest rate").
+    await user.type(rate, '{Backspace}{Backspace}{Backspace}');
+    expect(rate).toHaveValue('');
+    await user.type(rate, '3.65');
+    expect(rate).toHaveValue('3.65');
+    expect(screen.getByText(/rate 3\.6500/)).toBeInTheDocument();
+  });
+
+  it('shows fractional orders with every decimal that is recorded', async () => {
+    const data = sample();
+    data.settings.wholeShares = false;
+    const { user } = renderApp('invest', data);
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    const shown = Object.fromEntries(orderRows().map((r) => [r.split(' ')[0], r.split(' ')[1]]));
+    await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+    await user.click(screen.getByRole('button', { name: 'Record purchase' }));
+    await waitFor(() => expect(savedData().transactions).toHaveLength(1));
+    for (const o of savedData().transactions[0].orders) expect(Number(shown[o.ticker].replace(/,/g, ''))).toBe(o.shares);
+  });
+
+  it('starts over when a purchase is recorded in another tab', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    expect(window.localStorage.getItem('stockbalance:invest-draft')).not.toBeNull();
+
+    // The other tab recorded the purchase.
+    const after = sample();
+    after.transactions = [{ id: 'elsewhere', date: '2026-10-29T10:00:00.000Z', usdIls: 3.7, fxFeePercent: 0, orders: [], allocations: [], cash: [] }];
+    after.categories = after.categories.map((c) => ({ ...c, cashIls: c.cashIls + 1 }));
+    act(() => {
+      window.localStorage.setItem('stockbalance:data', JSON.stringify(after));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'stockbalance:data', newValue: JSON.stringify(after) }));
+    });
+    expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
+    await waitFor(() => expect(window.localStorage.getItem('stockbalance:invest-draft')).toBeNull());
+  });
+
+  it('forgets the saved plan when the amount is cleared, even while another amount is invalid', async () => {
+    const first = renderApp('invest', sample());
+    await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    const kids = screen.getByLabelText('New money for Kids');
+    await first.user.clear(kids);
+    await first.user.type(kids, '-500');
+    await first.user.clear(screen.getByLabelText('Amount to invest in ILS'));
+    first.unmount();
+    renderApp('invest', sample());
+    expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
+  });
+
+  it('still restores a plan saved by the previous version of the app', async () => {
+    const first = renderApp('invest', sample());
+    await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '5500');
+    const planned = orderRows();
+    first.unmount();
+    const draft = JSON.parse(window.localStorage.getItem('stockbalance:invest-draft')!);
+    delete draft.saved.categoriesKey;
+    delete draft.saved.lastTxId;
+    window.localStorage.setItem('stockbalance:invest-draft', JSON.stringify(draft));
+
+    const later = sample();
+    later.prices.VOO = { ...later.prices.VOO, priceUsd: 600 };
+    renderApp('invest', later);
+    expect(screen.getByText(/This is the plan you made/)).toBeInTheDocument();
+    expect(orderRows()).toEqual(planned);
   });
 
   it('subtracts an earlier overspend from the budget', async () => {

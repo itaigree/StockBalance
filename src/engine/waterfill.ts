@@ -51,20 +51,37 @@ export function waterfill(values: number[], weights: number[], budget: number, m
 /**
  * "Fewest orders" filling (see docs/DESIGN.md): the position furthest below its target value gets
  * money first, up to its target, then the next one, until the budget runs out. Positions at or
- * above target get nothing; ties go to the earlier position. Returns the amount for each position.
+ * above target get nothing; ties go to the earlier position. Positions can share a cap (`shared.of[i]`
+ * is an index into `shared.caps`, e.g. a group of stocks that together may only fill its own gap):
+ * such a position counts as only as far below target as that cap still allows. Returns the amount
+ * for each position.
  */
-export function fillLargestGapFirst(values: number[], targets: number[], budget: number): number[] {
+export function fillLargestGapFirst(
+  values: number[],
+  targets: number[],
+  budget: number,
+  shared?: { of: (number | undefined)[]; caps: number[] },
+): number[] {
   const out = values.map(() => 0);
+  const room = values.map((v, i) => targets[i] - v);
+  const caps = shared ? [...shared.caps] : [];
+  const free = (i: number) => {
+    const s = shared?.of[i];
+    return s === undefined ? room[i] : Math.min(room[i], caps[s]);
+  };
   let left = budget;
-  const order = values
-    .map((_, i) => i)
-    .filter((i) => targets[i] - values[i] > 0)
-    .sort((a, b) => targets[b] - values[b] - (targets[a] - values[a]) || a - b);
-  for (const i of order) {
-    // Stop at floating-point crumbs, so they don't start another position.
-    if (!(left > 1e-9)) break;
-    out[i] = Math.min(left, targets[i] - values[i]);
-    left -= out[i];
+  // Stop at floating-point crumbs, so they don't start another position.
+  while (left > 1e-9) {
+    let best = -1;
+    for (let i = 0; i < values.length; i++) if (free(i) > 1e-9 && (best < 0 || free(i) > free(best))) best = i;
+    if (best < 0) break;
+    // Each pick fills the position (or its shared cap) or uses up the budget.
+    const x = Math.min(left, free(best));
+    out[best] += x;
+    left -= x;
+    room[best] -= x;
+    const s = shared?.of[best];
+    if (s !== undefined) caps[s] -= x;
   }
   return out;
 }

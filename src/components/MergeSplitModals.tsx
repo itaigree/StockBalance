@@ -21,7 +21,8 @@ export function MergeModal({ category, onClose, onDone }: { category: Category; 
   const [otherId, setOtherId] = useState(others[0]?.id ?? '');
   const [keepId, setKeepId] = useState(category.id);
   const other = others.find((c) => c.id === otherId);
-  const keep = keepId === category.id ? category : other;
+  // The kept category is always one of the two shown (the choice resets when "Merge with" changes).
+  const keep = keepId === category.id ? category : keepId === otherId ? other : undefined;
   const [name, setName] = useState(category.name);
   const nameTaken =
     name.trim() !== '' &&
@@ -70,7 +71,16 @@ export function MergeModal({ category, onClose, onDone }: { category: Category; 
         <div className="stack">
           <label className="field">
             Merge with
-            <select value={otherId} onChange={(e) => setOtherId(e.target.value)}>
+            <select
+              value={otherId}
+              onChange={(e) => {
+                setOtherId(e.target.value);
+                if (keepId !== category.id) {
+                  setKeepId(category.id);
+                  setName(category.name);
+                }
+              }}
+            >
               {others.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -125,6 +135,16 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
   const [cash, setCash] = useState<number | null>(0);
   const [copyTargets, setCopyTargets] = useState(true);
   const [percent, setPercent] = useState<number | null>(50);
+  /** Fields whose text can't be read as a number (tickers, or "cash"). */
+  const [unreadable, setUnreadable] = useState<Set<string>>(new Set());
+  const trackReadable = (id: string) => (valid: boolean) =>
+    setUnreadable((s) => {
+      if (valid !== s.has(id)) return s;
+      const next = new Set(s);
+      if (valid) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const trimmed = name.trim();
   const nameError = !trimmed
@@ -133,6 +153,7 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
       ? 'Another category already has this name.'
       : null;
   const rowError = (t: string, have: number) => {
+    if (unreadable.has(t)) return 'Enter a number.';
     const n = move[t];
     if (n === null || n === undefined) return null;
     if (n < 0) return "Can't be negative.";
@@ -140,13 +161,19 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
     return null;
   };
   const maxCash = Math.max(0, category.cashIls);
-  const cashError = cash !== null && (cash < 0 || cash > maxCash + 0.005) ? `Between ₪0 and ${fmtIls(maxCash)}.` : null;
+  const cashError = unreadable.has('cash')
+    ? 'Enter a number.'
+    : cash !== null && (cash < 0 || cash > maxCash + 0.005)
+      ? `Between ₪0 and ${fmtIls(maxCash)}.`
+      : null;
   const valid = !nameError && !cashError && held.every(([t, have]) => !rowError(t, have));
 
   const applyPercent = () => {
     if (percent === null || percent < 0 || percent > 100) return;
-    setMove(Object.fromEntries(held.map(([t, have]) => [t, Math.round(((have * percent) / 100) * 1e6) / 1e6])));
-    setCash(Math.round(maxCash * percent) / 100);
+    // Rounded to millionths of a share, but never more than there is (all of it at 100%).
+    const part = (have: number) => (percent === 100 ? have : Math.min(have, Math.round(((have * percent) / 100) * 1e6) / 1e6));
+    setMove(Object.fromEntries(held.map(([t, have]) => [t, part(have)])));
+    setCash(percent === 100 ? maxCash : Math.min(maxCash, Math.round(maxCash * percent) / 100));
   };
 
   return (
@@ -232,6 +259,7 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
                             placeholder="0"
                             aria-label={`Shares of ${t} to move`}
                             onChange={(v) => setMove((m) => ({ ...m, [t]: v }))}
+                            onValidityChange={trackReadable(t)}
                           />
                           {err && <div className="error-text">{err}</div>}
                         </td>
@@ -247,7 +275,7 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
 
         <label className="field">
           Cash to move
-          <NumberField value={cash} onChange={setCash} prefix="₪" aria-label="Cash to move" />
+          <NumberField value={cash} onChange={setCash} prefix="₪" aria-label="Cash to move" onValidityChange={trackReadable('cash')} />
           <span className="hint">
             {category.name} has {fmtIls(category.cashIls)} cash.
           </span>

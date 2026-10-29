@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppData, PriceProviderSetting } from '../types';
-import { useApp, allTickers } from '../state/AppState';
+import { useApp } from '../state/AppState';
 import { readBackupFile } from '../data/backup';
 import { fetchPrices } from '../data/prices';
 import { emptyData } from '../data/schema';
@@ -38,6 +38,11 @@ export function SettingsPage() {
   const [confirmSample, setConfirmSample] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteText, setDeleteText] = useState('');
+  // However the dialog closes, it starts empty next time.
+  const closeDelete = () => {
+    setConfirmDelete(false);
+    setDeleteText('');
+  };
   const [done, setDone] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -312,7 +317,7 @@ export function SettingsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  actions.replaceData(restore);
+                  actions.startOver(restore);
                   setRestore(null);
                   setDone('Backup restored.');
                 }}
@@ -343,8 +348,7 @@ export function SettingsPage() {
                 type="button"
                 onClick={() => {
                   const sample = sampleData();
-                  actions.replaceData(sample);
-                  void actions.refreshMarket(allTickers(sample.categories));
+                  actions.startOver(sample);
                   setConfirmSample(false);
                   setDone('Sample data loaded.');
                 }}
@@ -361,10 +365,10 @@ export function SettingsPage() {
       {confirmDelete && (
         <Modal
           title="Delete all data?"
-          onClose={() => setConfirmDelete(false)}
+          onClose={closeDelete}
           footer={
             <>
-              <button type="button" className="secondary" onClick={() => setConfirmDelete(false)}>
+              <button type="button" className="secondary" onClick={closeDelete}>
                 Cancel
               </button>
               <button
@@ -372,9 +376,10 @@ export function SettingsPage() {
                 className="danger"
                 disabled={deleteText !== 'DELETE'}
                 onClick={() => {
-                  actions.replaceData(emptyData());
-                  setConfirmDelete(false);
-                  setDeleteText('');
+                  actions.startOver(emptyData());
+                  // The last backup no longer describes what is here.
+                  backup.forget();
+                  closeDelete();
                   setDone('All data deleted.');
                 }}
               >

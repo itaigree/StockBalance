@@ -1,4 +1,5 @@
-import type { BuyStrategy } from '../types';
+import type { BuyStrategy, Category } from '../types';
+import { fingerprint } from './fingerprint';
 import type { PlanResult } from '../engine';
 
 const KEY = 'stockbalance:invest-draft';
@@ -28,6 +29,36 @@ export interface SavedPlan {
   newMoneyIls: Record<string, number>;
   usdIls: number;
   fxFeePercent: number;
+  /** `categoriesKey` of the categories the plan was made for (missing in older drafts). */
+  categoriesKey?: string;
+  /** Id of the newest purchase when the plan was made (missing in older drafts). */
+  lastTxId?: string | null;
+}
+
+/**
+ * The saved draft if it still applies: no purchase was recorded or undone since it was made (else
+ * its money may already be spent). Drafts from older versions don't know, and are kept.
+ */
+export function usableDraft(draft: InvestDraft | null, latestTxId: string | null): InvestDraft | null {
+  if (!draft) return null;
+  return draft.saved.lastTxId === undefined || draft.saved.lastTxId === latestTxId ? draft : null;
+}
+
+/** Whether a saved plan can be shown and recorded as it was: its categories haven't changed since. */
+export function planStillFits(saved: SavedPlan, categories: Category[]): boolean {
+  if (saved.categoriesKey !== undefined) return saved.categoriesKey === categoriesKey(categories);
+  // Saved by an older version, without a fingerprint: every category it plans for must still exist.
+  const ids = new Set(categories.map((c) => c.id));
+  return saved.plan.categories.every((c) => ids.has(c.categoryId));
+}
+
+/**
+ * A fingerprint of what a plan depends on in the categories (ids, targets, money rules, holdings,
+ * cash), so a saved plan isn't shown or recorded after they changed (edited, deleted, merged,
+ * restored from a backup, a purchase undone…).
+ */
+export function categoriesKey(categories: Category[]): string {
+  return fingerprint(JSON.stringify(categories.map((c) => [c.id, c.targets, c.contribution, c.holdings, c.cashIls])));
 }
 
 export interface InvestDraft {

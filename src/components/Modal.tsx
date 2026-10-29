@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 interface Props {
   title: string;
@@ -14,12 +14,18 @@ export function Modal({ title, onClose, children, footer, wide }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Where focus was when the dialog opened, read while rendering — before an autoFocus field inside
+  // the dialog takes it — so it can go back there on close.
+  const [previous] = useState(() => document.activeElement as HTMLElement | null);
+  /** The field inside the dialog that took focus on opening (autoFocus), to keep it there. */
+  const initialFocus = useRef<HTMLElement | null>(null);
 
   // Runs once per opening: parents often pass a new onClose on every render, and re-running this
   // would steal focus from inputs inside the dialog.
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
+    if (ref.current?.contains(document.activeElement)) initialFocus.current = document.activeElement as HTMLElement;
+    // In development React runs this twice, and the first cleanup has given focus back to `previous`.
+    else (initialFocus.current ?? ref.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCloseRef.current();
     };
@@ -28,7 +34,7 @@ export function Modal({ title, onClose, children, footer, wide }: Props) {
       document.removeEventListener('keydown', onKey);
       previous?.focus?.();
     };
-  }, []);
+  }, [previous]);
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseRef.current()}>

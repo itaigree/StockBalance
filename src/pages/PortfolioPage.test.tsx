@@ -13,6 +13,25 @@ describe('PortfolioPage', () => {
     await waitFor(() => expect(savedData().categories).toHaveLength(3));
   });
 
+  it('keeps listing past purchases when every category was deleted', () => {
+    const data = sample();
+    data.categories = [];
+    data.transactions = [{ id: 't', date: '2026-10-01T12:00:00.000Z', usdIls: 3.7, fxFeePercent: 0, orders: [], allocations: [], cash: [] }];
+    renderApp('portfolio', data);
+    expect(screen.queryByRole('heading', { name: 'Welcome to StockBalance' })).not.toBeInTheDocument();
+    expect(screen.getByText('All purchases')).toBeInTheDocument();
+    expect(screen.getByText(/There are no categories now/)).toBeInTheDocument();
+  });
+
+  it('keeps the user’s settings when loading the sample on the welcome page', async () => {
+    const data = sample();
+    data.categories = [];
+    data.settings = { ...data.settings, finnhubApiKey: 'my-key', fxFeePercent: 0.5 };
+    const { user } = renderApp('portfolio', data);
+    await user.click(screen.getByRole('button', { name: 'Load sample data' }));
+    await waitFor(() => expect(savedData().settings).toMatchObject({ finnhubApiKey: 'my-key', fxFeePercent: 0.5 }));
+  });
+
   it('shows each category against its targets', () => {
     renderApp('portfolio', sample());
     const pension = screen.getByRole('region', { name: 'Pension' });

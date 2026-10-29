@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AppData, Category, PriceQuote, Settings } from '../types';
+import { normalizeTicker } from '../lib/format';
 
 export const DEFAULT_SETTINGS: Settings = {
   priceProvider: 'auto',
@@ -25,7 +26,8 @@ const ticker = z
   .trim()
   .min(1, 'the ticker is empty')
   .max(20, 'the ticker is too long')
-  .transform((s) => s.toUpperCase());
+  // Saved before share classes were written one way (BRK-B), they load as the app writes them (BRK.B).
+  .transform((s) => normalizeTicker(s));
 
 const contribution = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('fixed'), amountIls: z.number().nonnegative() }),
@@ -145,7 +147,7 @@ export function parseAppData(raw: unknown): ParseResult {
   const prices: Record<string, PriceQuote> = {};
   for (const [key, value] of Object.entries(d.prices)) {
     const q = priceQuote.safeParse(value);
-    const t = key.trim().toUpperCase();
+    const t = normalizeTicker(key);
     if (q.success && t) prices[t] = q.data;
   }
 
@@ -180,7 +182,7 @@ function mergeTargets(targets: { ticker: string; percent: number; group?: string
 function normaliseHoldings(holdings: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
   for (const [key, shares] of Object.entries(holdings)) {
-    const t = key.trim().toUpperCase();
+    const t = normalizeTicker(key);
     if (t && shares > 0) out[t] = (out[t] ?? 0) + shares;
   }
   return out;

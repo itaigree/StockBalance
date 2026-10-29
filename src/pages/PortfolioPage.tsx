@@ -19,7 +19,8 @@ export function PortfolioPage() {
   const prices = useMemo(() => priceMap(data.prices), [data.prices]);
   const valuations = useMemo(() => data.categories.map((c) => valueCategory(c, prices)), [data.categories, prices]);
 
-  if (data.categories.length === 0) return <Welcome />;
+  // A fresh start; with past purchases (all categories deleted), the page still lists them.
+  if (data.categories.length === 0 && data.transactions.length === 0) return <Welcome />;
 
   const rate = data.fx?.usdIls ?? null;
   const investedUsd = valuations.reduce((s, v) => s + v.investedUsd, 0);
@@ -64,6 +65,15 @@ export function PortfolioPage() {
         {investedUsd > 0 && <CategoryShareBar categories={data.categories} valuations={valuations} total={investedUsd} />}
       </section>
 
+      {data.categories.length === 0 && (
+        <section className="card empty">
+          <p>There are no categories now. Your past purchases are still listed below.</p>
+          <button type="button" onClick={() => navigateTo('categories')}>
+            Set up categories
+          </button>
+        </section>
+      )}
+
       {data.categories.map((c, i) => (
         <CategoryCard key={c.id} category={c} valuation={valuations[i]} rate={rate} onEditPrice={setEditing} />
       ))}
@@ -78,7 +88,7 @@ export function PortfolioPage() {
 }
 
 function Welcome() {
-  const { actions } = useApp();
+  const { data, actions } = useApp();
   return (
     <section className="card empty">
       <h1>Welcome to StockBalance</h1>
@@ -99,9 +109,9 @@ function Welcome() {
           type="button"
           className="secondary"
           onClick={() => {
-            const sample = sampleData();
-            actions.replaceData(sample);
-            void actions.refreshMarket(allTickers(sample.categories));
+            // Keep the user's settings (price source, API key, fee).
+            const sample = { ...sampleData(), settings: data.settings };
+            actions.startOver(sample);
           }}
         >
           Load sample data

@@ -1,5 +1,6 @@
 import type { Category } from '../types';
 import { CATEGORY_COLORS, newId } from '../lib/ids';
+import { normalizeTicker } from '../lib/format';
 
 /** Holdings found in an imported file, grouped by portfolio name. */
 export interface ImportedPortfolio {
@@ -72,7 +73,8 @@ export function parseYahooPortfolioCsv(text: string): ImportResult {
   const unknownTypes = new Set<string>();
 
   for (const r of rows.slice(1)) {
-    const ticker = (r[iSymbol] ?? '').trim().toUpperCase();
+    // Yahoo writes share classes with a dash (BRK-B); the app uses a dot (BRK.B), as in targets.
+    const ticker = normalizeTicker(r[iSymbol] ?? '');
     const sharesText = (r[iShares] ?? '').trim();
     if (!ticker || !sharesText) continue; // blank lines and per-stock summary rows
     const shares = Number(sharesText);

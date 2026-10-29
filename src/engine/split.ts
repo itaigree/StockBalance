@@ -30,7 +30,8 @@ export function splitContribution(
     c.contribution.kind === 'fixed' ? [{ id: c.id, amount: valid(c.contribution.amountIls, c, 'fixed amount') }] : [],
   );
   const fixedSum = fixed.reduce((a, f) => a + f.amount, 0);
-  const fixedScale = fixedSum > totalIls ? totalIls / fixedSum : 1;
+  // Small tolerances: sums of decimals like 17.6 + 48.2 + 34.2 can land a hair above 100.
+  const fixedScale = fixedSum > totalIls + 1e-9 ? totalIls / fixedSum : 1;
   if (fixedScale < 1) {
     warnings.push(
       `The fixed amounts (${fmtIls(fixedSum)}) are more than the total (${fmtIls(totalIls)}), so they were scaled down.`,
@@ -44,7 +45,7 @@ export function splitContribution(
     c.contribution.kind === 'percent' ? [{ id: c.id, percent: valid(c.contribution.percent, c, 'percentage') }] : [],
   );
   const percentSum = percent.reduce((a, p) => a + p.percent, 0);
-  const percentScale = percentSum > 100 ? 100 / percentSum : 1;
+  const percentScale = percentSum > 100 + 1e-9 ? 100 / percentSum : 1;
   if (percentScale < 1) {
     warnings.push(`The percentages add up to ${fmtPercent(percentSum)}, so they were scaled down to 100%.`);
   }

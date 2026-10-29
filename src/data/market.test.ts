@@ -88,6 +88,16 @@ describe('fetchPrices', () => {
     expect(Object.values(r1.failures).every((f) => f === 'Finnhub rejected the API key.')).toBe(true);
     expect(rejected.calls.length).toBeLessThanOrEqual(4);
 
+    // A symbol the plan doesn't cover is refused with 403; the others are still priced.
+    const partly = router([
+      [/finnhub\.io.*symbol=MXWO\.L&/, () => json({ error: "You don't have access to this resource." }, 403)],
+      [/finnhub/, () => finnhubOk(100)],
+    ]);
+    const tickers = ['AAPL', 'BND', 'GLD', 'MXWO.L', 'QQQ', 'VOO', 'VXUS'];
+    const r0 = await fetchPrices(tickers, settings({ priceProvider: 'finnhub', finnhubApiKey: 'k' }), partly.fn, NOW);
+    expect(Object.keys(r0.quotes).sort()).toEqual(['AAPL', 'BND', 'GLD', 'QQQ', 'VOO', 'VXUS']);
+    expect(r0.failures).toEqual({ 'MXWO.L': "Finnhub doesn't give this stock's price on your plan." });
+
     const limited = router([[/finnhub/, () => json({ error: 'API limit reached.' }, 429)]]);
     const r2 = await fetchPrices(['A'], settings({ priceProvider: 'finnhub', finnhubApiKey: 'k' }), limited.fn, NOW);
     expect(r2.failures.A).toMatch(/rate limit/);

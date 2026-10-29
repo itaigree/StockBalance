@@ -9,28 +9,43 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 
   prefix?: string;
   /** Text shown after the input, e.g. "%". */
   suffix?: string;
+  /**
+   * Told whether the text can be read as a number (empty counts as readable), so a form can refuse
+   * to save "5.5." or "100%" instead of treating it like an empty field.
+   */
+  onValidityChange?: (valid: boolean) => void;
 };
 
 const format = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 10 });
 
 /**
  * Text input for numbers that lets the user type freely ("1,000", "0.", "") and reports the parsed
- * value. External value changes are reflected unless they match what is already typed; the number
- * is shown with thousands separators when the field isn't being edited.
+ * value. External value changes are reflected unless they match what is already typed. While the
+ * user has just emptied the field, a default the parent puts in its place (e.g. the latest rate)
+ * waits until the field is left, so it isn't mixed into what is being typed. The number is shown
+ * with thousands separators when the field isn't being edited.
  */
-export function NumberField({ value, onChange, prefix, suffix, className, onBlur, ...rest }: Props) {
+export function NumberField({ value, onChange, prefix, suffix, className, onBlur, onFocus, onValidityChange, ...rest }: Props) {
   const [text, setText] = useState(() => (value === null ? '' : format(value)));
   const lastEmitted = useRef<number | null>(value);
+  const focused = useRef(false);
 
   useEffect(() => {
-    if (value !== lastEmitted.current) {
-      setText(value === null ? '' : format(value));
-      lastEmitted.current = value;
-    }
+    if (value === lastEmitted.current) return;
+    if (focused.current && lastEmitted.current === null && value !== null) return;
+    setText(value === null ? '' : format(value));
+    lastEmitted.current = value;
   }, [value]);
 
   const parsed = parseNumber(text);
   const invalid = text.trim() !== '' && parsed === null;
+  const onValidityRef = useRef(onValidityChange);
+  onValidityRef.current = onValidityChange;
+  useEffect(() => {
+    onValidityRef.current?.(!invalid);
+  }, [invalid]);
+  // A field that goes away (e.g. a target hidden when a stock joins an equal group) holds nothing.
+  useEffect(() => () => onValidityRef.current?.(true), []);
 
   return (
     <span className={`number-field${invalid ? ' invalid' : ''}${className ? ` ${className}` : ''}`}>
@@ -48,9 +63,18 @@ export function NumberField({ value, onChange, prefix, suffix, className, onBlur
           lastEmitted.current = n;
           onChange(n);
         }}
+        onFocus={(e) => {
+          focused.current = true;
+          onFocus?.(e);
+        }}
         onBlur={(e) => {
+          focused.current = false;
           const n = parseNumber(text);
-          if (n !== null) setText(format(n));
+          if (value !== lastEmitted.current) {
+            // The value changed (or was filled in by the parent) while typing: show it now.
+            setText(value === null ? '' : format(value));
+            lastEmitted.current = value;
+          } else if (n !== null) setText(format(n));
           onBlur?.(e);
         }}
       />

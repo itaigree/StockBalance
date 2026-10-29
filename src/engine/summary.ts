@@ -51,7 +51,13 @@ export function categoryPurchaseSummary(category: Category, transactions: Transa
       const b = (buys[a.ticker] ??= { shares: 0, priceUsd: 0, costUsd: 0 });
       b.shares += a.shares;
       b.costUsd += a.costUsd;
-      b.priceUsd = b.shares > 0 ? b.costUsd / b.shares : 0;
+    }
+    // The price paid comes from the orders: a category's cost is its exact part of an order while its
+    // shares are rounded to 6 decimals, so cost / shares can be a fraction of a cent off.
+    for (const [ticker, b] of Object.entries(buys)) {
+      const orders = tx.orders.filter((o) => o.ticker === ticker);
+      const n = orders.reduce((s, o) => s + o.shares, 0);
+      b.priceUsd = n > 0 ? orders.reduce((s, o) => s + o.shares * o.priceUsd, 0) / n : b.shares > 0 ? b.costUsd / b.shares : 0;
     }
     const newMoneyIls = cash?.newMoneyIls ?? 0;
     rows.push({
@@ -60,7 +66,8 @@ export function categoryPurchaseSummary(category: Category, transactions: Transa
       ...(tx.note ? { note: tx.note } : {}),
       newMoneyIls,
       usdIls: tx.usdIls,
-      newMoneyUsd: newMoneyIls / tx.usdIls,
+      // What the money buys in dollars after the conversion fee, like `spentUsd`, so the two compare.
+      newMoneyUsd: newMoneyIls / (tx.usdIls * (1 + tx.fxFeePercent / 100)),
       buys,
       spentUsd: allocations.reduce((s, a) => s + a.costUsd, 0),
       spentIls: cash?.spentIls ?? 0,
@@ -77,9 +84,9 @@ export function categoryPurchaseSummary(category: Category, transactions: Transa
   const avgPriceUsd: Record<string, number> = {};
   for (const t of tickers) {
     const n = rows.reduce((s, r) => s + (r.buys[t]?.shares ?? 0), 0);
-    const cost = rows.reduce((s, r) => s + (r.buys[t]?.costUsd ?? 0), 0);
+    const paid = rows.reduce((s, r) => s + (r.buys[t] ? r.buys[t].shares * r.buys[t].priceUsd : 0), 0);
     shares[t] = n;
-    if (n > 0) avgPriceUsd[t] = cost / n;
+    if (n > 0) avgPriceUsd[t] = paid / n;
   }
   const sum = (f: (r: CategoryPurchaseRow) => number) => rows.reduce((s, r) => s + f(r), 0);
   const newMoneyIls = sum((r) => r.newMoneyIls);

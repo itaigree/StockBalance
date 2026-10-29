@@ -26,6 +26,11 @@ describe('parseYahooPortfolioCsv', () => {
     expect(r.ok && r.warnings.join(' ')).toMatch(/TEVA\.TA \(ILA\)/);
   });
 
+  it('turns Yahoo share-class symbols into the app form (BRK-B → BRK.B)', () => {
+    const csv = 'Symbol,Portfolio,Currency,Shares Owned,Type\nBRK-B,Pension,USD,10,Buy\nBF-B,Pension,USD,2,Buy\nVOO,Pension,USD,2,Buy\n';
+    expect(parseYahooPortfolioCsv(csv)).toMatchObject({ ok: true, portfolios: [{ name: 'Pension', holdings: { 'BRK.B': 10, 'BF.B': 2, VOO: 2 } }] });
+  });
+
   it('rejects files that are not portfolio exports', () => {
     expect(parseYahooPortfolioCsv('name,age\nx,1')).toMatchObject({ ok: false });
     expect(parseYahooPortfolioCsv('Symbol,Shares Owned\n')).toMatchObject({ ok: false, error: /No holdings/ });

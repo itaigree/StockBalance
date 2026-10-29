@@ -1,4 +1,5 @@
 import type { Category, Transaction, TransactionAllocation, TransactionCategoryCash } from '../types';
+import { normalizeTicker } from '../lib/format';
 import { apportion } from './apportion';
 import type { ExecutedPurchase, PlanResult } from './types';
 
@@ -16,7 +17,7 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
   const orders: Transaction['orders'] = [];
   const allocations: TransactionAllocation[] = [];
   for (const o of executed.orders) {
-    const ticker = o.ticker.trim().toUpperCase();
+    const ticker = normalizeTicker(o.ticker);
     if (!ticker) throw new Error('A stock is missing its ticker.');
     if (o.categoryId === undefined && !planned.has(ticker)) {
       throw new Error(`${ticker} is not part of this plan; choose which category it is for.`);
@@ -33,9 +34,13 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
             .filter((c) => c.shares > 0);
     if (owners.length === 0) throw new Error(`${ticker}: no category planned to buy it.`);
     const split = apportion(o.shares, owners.map((c) => c.shares), SHARE_DECIMALS);
+    const weight = owners.reduce((s, c) => s + c.shares, 0);
     owners.forEach((c, i) => {
       if (split[i] > 0) {
-        allocations.push({ categoryId: c.id, ticker, shares: split[i], costUsd: split[i] * o.priceUsd });
+        // The cost follows the exact proportion, not the shares rounded to 6 decimals, so a category
+        // that spends its whole budget isn't charged a fraction of an agora more than it has.
+        const costUsd = ((o.shares * c.shares) / weight) * o.priceUsd;
+        allocations.push({ categoryId: c.id, ticker, shares: split[i], costUsd });
       }
     });
     orders.push({ ticker, shares: o.shares, priceUsd: o.priceUsd });

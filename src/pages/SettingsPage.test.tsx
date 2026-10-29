@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../App';
 import { AppStateProvider } from '../state/AppState';
@@ -138,6 +138,27 @@ describe('import holdings', () => {
 });
 
 describe('price forwarder', () => {
+  it('shows a test result only for the address that was tested', async () => {
+    let answer: ((r: Response) => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    try {
+      const { user } = renderApp('settings', sample());
+      const address = screen.getByLabelText('Price forwarder address');
+      await user.type(address, 'https://good.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await user.type(address, '-typo');
+      await act(async () => {
+        const body = { chart: { result: [{ meta: { currency: 'USD', regularMarketPrice: 575.3 } }], error: null } };
+        answer!(new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(screen.queryByText(/Works: VOO/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('saves the address and tests it', async () => {
     const { user } = renderApp('settings', sample());
     await user.type(screen.getByLabelText('Price forwarder address'), 'https://fwd.example.workers.dev');

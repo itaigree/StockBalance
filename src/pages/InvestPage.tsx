@@ -55,10 +55,12 @@ export function InvestPage() {
   const [frozen, setFrozen] = useState<SavedPlan | null>(() =>
     draft && planStillFits(draft.saved, categories) ? draft.saved : null,
   );
-  const [recording, setRecording] = useState(false);
-  const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
+  /** The plan being recorded, as it was when "I made a purchase" was pressed (prices may change meanwhile). */
+  const [recording, setRecording] = useState<SavedPlan | null>(null);
+  /** What this page just recorded, for the banner and its Undo. */
+  const [recorded, setRecorded] = useState<{ kind: 'purchase' | 'cash'; txId: string } | null>(null);
   const [undoing, setUndoing] = useState(false);
-  const lastTx = data.transactions.at(-1);
+  const recordedTx = recorded ? data.transactions.find((t) => t.id === recorded.txId) : undefined;
 
   // A purchase recorded or undone elsewhere (e.g. in another tab) while this page is open: start
   // over, so the same money isn't planned — and recorded — twice.
@@ -71,8 +73,28 @@ export function InvestPage() {
     setOverrides({});
     setRestId(null);
     setExcluded([]);
+    setRecording(null);
     clearDraft();
+    // The banner's Undo is for the purchase recorded here, while it is still the newest one.
+    if (recorded?.txId !== latestTxId) {
+      setRecorded(null);
+      setUndoing(false);
+    }
+    // Only a change of the newest purchase matters here.
   }, [latestTxId]);
+  /**
+   * Number fields whose text can't be read ("total", "amount:<category id>", "minOrder", "maxTickers",
+   * "rate", "fee"): nothing is planned until they're fixed, instead of reading them as empty.
+   */
+  const [unreadable, setUnreadable] = useState<Set<string>>(new Set());
+  const trackReadable = (id: string) => (valid: boolean) =>
+    setUnreadable((s) => {
+      if (valid !== s.has(id)) return s;
+      const next = new Set(s);
+      if (valid) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const backup = useBackup();
   const [backedUp, setBackedUp] = useState(false);
 
@@ -117,7 +139,19 @@ export function InvestPage() {
   const sumNew = Object.values(newMoney).reduce((a, b) => a + b, 0);
   const hasCash = categories.some((c) => !isZeroMoney(c.cashIls));
   const edited = Object.keys(overrides).length > 0 || rest !== null;
-  const started = (total ?? 0) > 0 || Object.values(overrides).some((v) => (v ?? 0) > 0);
+  // Started with new money, or with an amount typed (even 0) when there is cash from before to invest.
+  const started =
+    (total ?? 0) > 0 ||
+    Object.values(overrides).some((v) => (v ?? 0) > 0) ||
+    ((total !== null || edited) && Object.values(budgets).some((b) => b > 0));
+  /** Fields still shown whose text can't be read (a category's amount is hidden while it gets the rest). */
+  const unreadableShown = [...unreadable].filter((id) => {
+    if (!id.startsWith('amount:')) return true;
+    const cid = id.slice('amount:'.length);
+    return cid !== rest && categories.some((c) => c.id === cid);
+  });
+  const unreadableOption = unreadableShown.some((id) => ['minOrder', 'maxTickers', 'rate', 'fee'].includes(id));
+  const unreadableAmount = unreadableShown.some((id) => id === 'total' || id.startsWith('amount:'));
 
   const options: PlanOptions = {
     wholeShares,
@@ -128,10 +162,11 @@ export function InvestPage() {
   };
   // Empty means none: no minimum, no limit, no fee.
   const optionsValid =
+    !unreadableOption &&
     (minOrder === null || minOrder >= 0) &&
     (maxTickers === null || (Number.isInteger(maxTickers) && maxTickers >= 1)) &&
     (feePercent === null || feePercent >= 0);
-  const amountsValid = Object.values(overrides).every((v) => v === null || v >= 0);
+  const amountsValid = !unreadableAmount && Object.values(overrides).every((v) => v === null || v >= 0);
 
   const prices = useMemo(() => priceMap(data.prices), [data.prices]);
   // Planning takes a few milliseconds, so it simply runs on every change.
@@ -179,9 +214,9 @@ export function InvestPage() {
     // `inputs`, `shown`, the categories and the purchases are fully described by these keys.
   }, [frozen, started, inputsOk, inputsKey, planKey, latestTxId]);
 
-  const afterRecording = (kind: 'purchase' | 'cash') => {
-    setRecording(false);
-    setRecorded(kind);
+  const afterRecording = (kind: 'purchase' | 'cash', txId: string) => {
+    setRecording(null);
+    setRecorded({ kind, txId });
     setBackedUp(false);
     setFrozen(null);
     clearDraft();
@@ -200,7 +235,7 @@ export function InvestPage() {
       newId(),
     );
     actions.recordTransaction(tx);
-    afterRecording('cash');
+    afterRecording('cash', tx.id);
   };
 
   if (categories.length === 0) {
@@ -235,9 +270,9 @@ export function InvestPage() {
 
       <MarketBar />
 
-      {recorded && (
+      {recorded && recordedTx && (
         <div className="banner info" role="status">
-          {recorded === 'purchase'
+          {recorded.kind === 'purchase'
             ? "Purchase recorded. Your holdings and cash were updated; it's listed on each category's page."
             : "Saved. The money was added to each category's cash and will be included next time."}{' '}
           <button type="button" className="link-button" onClick={() => setUndoing(true)}>
@@ -254,13 +289,13 @@ export function InvestPage() {
           {backup.error && <div className="error-text">{backup.error}</div>}
         </div>
       )}
-      {undoing && lastTx && (
+      {undoing && recordedTx && (
         <UndoModal
-          tx={lastTx}
+          tx={recordedTx}
           categories={data.categories}
           onClose={() => setUndoing(false)}
           onConfirm={() => {
-            actions.undoTransaction(lastTx.id);
+            actions.undoTransaction(recordedTx.id);
             setUndoing(false);
             setRecorded(null);
           }}
@@ -281,7 +316,9 @@ export function InvestPage() {
             placeholder="10,000"
             aria-label="Amount to invest in ILS"
             autoFocus
+            onValidityChange={trackReadable('total')}
           />
+          {unreadable.has('total') && <span className="error-text">{UNREADABLE}</span>}
         </label>
       </section>
 
@@ -323,6 +360,8 @@ export function InvestPage() {
                   useCash={useCash}
                   budget={budgets[c.id]}
                   onChange={(v) => setOverrides((o) => ({ ...o, [c.id]: v }))}
+                  onValidityChange={trackReadable(`amount:${c.id}`)}
+                  unreadable={unreadable.has(`amount:${c.id}`)}
                   onToggleRest={() => {
                     if (c.id === rest) {
                       // Keep the amount it had, as a normal typed amount.
@@ -391,21 +430,42 @@ export function InvestPage() {
           </label>
           <label className="field">
             Minimum order
-            <NumberField value={minOrder} onChange={setMinOrder} prefix="$" placeholder="0" />
+            <NumberField
+              value={minOrder}
+              onChange={setMinOrder}
+              prefix="$"
+              placeholder="0"
+              onValidityChange={trackReadable('minOrder')}
+            />
             <span className="hint">Skip a stock if less than this would be bought this time.</span>
             {minOrder !== null && minOrder < 0 && <span className="error-text">0 or more (or empty).</span>}
+            {unreadable.has('minOrder') && <span className="error-text">{UNREADABLE}</span>}
           </label>
           <label className="field">
             Max different stocks per purchase
-            <NumberField value={maxTickers} onChange={setMaxTickers} placeholder="no limit" className="narrow" />
+            <NumberField
+              value={maxTickers}
+              onChange={setMaxTickers}
+              placeholder="no limit"
+              className="narrow"
+              onValidityChange={trackReadable('maxTickers')}
+            />
             <span className="hint">Fewer orders; the stocks that need it most go first.</span>
+            {unreadable.has('maxTickers') && <span className="error-text">{UNREADABLE}</span>}
             {maxTickers !== null && !(Number.isInteger(maxTickers) && maxTickers >= 1) && (
               <span className="error-text">A whole number, 1 or more (or empty).</span>
             )}
           </label>
           <label className="field">
             USD/ILS rate for this purchase
-            <NumberField value={usdIls} onChange={(v) => setRateOverride(v)} className="narrow" />
+            <NumberField
+              // While the typed rate can't be read it stays as typed, not replaced by the latest rate.
+              value={unreadable.has('rate') ? null : usdIls}
+              onChange={(v) => setRateOverride(v)}
+              className="narrow"
+              onValidityChange={trackReadable('rate')}
+            />
+            {unreadable.has('rate') && <span className="error-text">{UNREADABLE}</span>}
             <span className="hint">
               {rateOverride !== null ? (
                 <button type="button" className="link-button" onClick={() => setRateOverride(null)}>
@@ -418,8 +478,16 @@ export function InvestPage() {
           </label>
           <label className="field">
             Currency conversion fee
-            <NumberField value={feePercent} onChange={setFeePercent} suffix="%" placeholder="0" className="narrow" />
+            <NumberField
+              value={feePercent}
+              onChange={setFeePercent}
+              suffix="%"
+              placeholder="0"
+              className="narrow"
+              onValidityChange={trackReadable('fee')}
+            />
             <span className="hint">What your broker charges on top of the rate.</span>
+            {unreadable.has('fee') && <span className="error-text">{UNREADABLE}</span>}
             {feePercent !== null && feePercent < 0 && <span className="error-text">0 or more (or empty).</span>}
           </label>
         </div>
@@ -444,18 +512,34 @@ export function InvestPage() {
 
       {started && (usdIls === null || !(usdIls > 0)) && <MissingRate />}
       {started && missingPrices.length > 0 && <MissingPrices tickers={missingPrices} />}
-      {started && !amountsValid && (
+      {unreadableShown.length > 0 ? (
         <div className="banner warn" role="alert">
-          A category’s amount is below 0. Enter 0 or more to see what to buy.
+          Some numbers can't be read{unreadableOption ? ' (see the Options)' : ''}. Use digits and a dot for decimals, e.g.
+          2.5, to see what to buy.
         </div>
-      )}
-      {started && amountsValid && !optionsValid && (
-        <div className="banner warn" role="alert">
-          Check the Options: the minimum order and the fee must be 0 or more, and max different stocks a whole number.
-        </div>
+      ) : (
+        <>
+          {started && !amountsValid && (
+            <div className="banner warn" role="alert">
+              A category’s amount is below 0. Enter 0 or more to see what to buy.
+            </div>
+          )}
+          {started && amountsValid && !optionsValid && (
+            <div className="banner warn" role="alert">
+              Check the Options: the minimum order and the fee must be 0 or more, and max different stocks a whole number.
+            </div>
+          )}
+        </>
       )}
 
-      {!started && <p className="muted center">Enter an amount to see what to buy.</p>}
+      {!started && !unreadableAmount && (
+        <>
+          <p className="muted center">Enter an amount to see what to buy.</p>
+          {hasCash && useCash && (
+            <p className="muted center small-text">To invest only the cash left from earlier purchases, enter 0.</p>
+          )}
+        </>
+      )}
 
       {frozen && (
         <div className="banner info" role="status">
@@ -472,21 +556,21 @@ export function InvestPage() {
           plan={plan}
           categories={categories}
           wholeShares={wholeShares}
-          onRecord={() => setRecording(true)}
+          onRecord={() => setRecording(shown)}
           onKeepCash={Object.values(shown.newMoneyIls).some((v) => v > 0) ? keepAsCash : undefined}
           excluded={excluded}
           onToggleExclude={(t) => setExcluded((xs) => (xs.includes(t) ? xs.filter((x) => x !== t) : [...xs, t].sort()))}
         />
       )}
 
-      {recording && shown && (
+      {recording && (
         <RecordPurchaseModal
-          plan={shown.plan}
-          newMoneyIls={shown.newMoneyIls}
-          usdIls={shown.usdIls}
-          fxFeePercent={shown.fxFeePercent}
-          onClose={() => setRecording(false)}
-          onRecorded={() => afterRecording('purchase')}
+          plan={recording.plan}
+          newMoneyIls={recording.newMoneyIls}
+          usdIls={recording.usdIls}
+          fxFeePercent={recording.fxFeePercent}
+          onClose={() => setRecording(null)}
+          onRecorded={(txId) => afterRecording('purchase', txId)}
         />
       )}
     </>
@@ -502,6 +586,8 @@ function SplitRow({
   useCash,
   budget,
   onChange,
+  onValidityChange,
+  unreadable,
   onToggleRest,
 }: {
   category: Category;
@@ -512,6 +598,8 @@ function SplitRow({
   useCash: boolean;
   budget: number;
   onChange: (v: number | null) => void;
+  onValidityChange: (valid: boolean) => void;
+  unreadable: boolean;
   onToggleRest: () => void;
 }) {
   return (
@@ -532,7 +620,13 @@ function SplitRow({
               {fmtIls(amount)}
             </span>
           ) : (
-            <NumberField value={amount} onChange={onChange} prefix="₪" aria-label={`New money for ${category.name}`} />
+            <NumberField
+              value={amount}
+              onChange={onChange}
+              prefix="₪"
+              aria-label={`New money for ${category.name}`}
+              onValidityChange={onValidityChange}
+            />
           )}
           <button
             type="button"
@@ -546,6 +640,7 @@ function SplitRow({
           </button>
         </div>
         {amount < 0 && <div className="error-text">0 or more.</div>}
+        {unreadable && !isRest && <div className="error-text">{UNREADABLE}</div>}
       </td>
       {showCash && (
         <td className={`num hide-sm${category.cashIls < 0 && !isZeroMoney(category.cashIls) ? ' bad-text' : ''}`}>
@@ -558,6 +653,8 @@ function SplitRow({
     </tr>
   );
 }
+
+const UNREADABLE = 'Not a number: use digits and a dot for decimals (e.g. 2.5).';
 
 function MissingRate() {
   const { actions } = useApp();

@@ -10,10 +10,13 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 
   /** Text shown after the input, e.g. "%". */
   suffix?: string;
   /**
-   * Told whether the text can be read as a number (empty counts as readable), so a form can refuse
-   * to save "5.5." or "100%" instead of treating it like an empty field.
+   * Told whether the text can be read as a number (empty counts as readable), and the text, so a form
+   * can refuse to save "5.5." or "100%" instead of treating it like an empty field. A field that goes
+   * away doesn't report anything: the form knows whether its value still counts.
    */
-  onValidityChange?: (valid: boolean) => void;
+  onValidityChange?: (valid: boolean, text: string) => void;
+  /** Text to show at first instead of the value, e.g. unreadable text the form kept while the field was hidden. */
+  initialText?: string;
 };
 
 const format = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 10 });
@@ -25,8 +28,19 @@ const format = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits:
  * waits until the field is left, so it isn't mixed into what is being typed. The number is shown
  * with thousands separators when the field isn't being edited.
  */
-export function NumberField({ value, onChange, prefix, suffix, className, onBlur, onFocus, onValidityChange, ...rest }: Props) {
-  const [text, setText] = useState(() => (value === null ? '' : format(value)));
+export function NumberField({
+  value,
+  onChange,
+  prefix,
+  suffix,
+  className,
+  onBlur,
+  onFocus,
+  onValidityChange,
+  initialText,
+  ...rest
+}: Props) {
+  const [text, setText] = useState(() => initialText ?? (value === null ? '' : format(value)));
   const lastEmitted = useRef<number | null>(value);
   const focused = useRef(false);
 
@@ -42,10 +56,8 @@ export function NumberField({ value, onChange, prefix, suffix, className, onBlur
   const onValidityRef = useRef(onValidityChange);
   onValidityRef.current = onValidityChange;
   useEffect(() => {
-    onValidityRef.current?.(!invalid);
-  }, [invalid]);
-  // A field that goes away (e.g. a target hidden when a stock joins an equal group) holds nothing.
-  useEffect(() => () => onValidityRef.current?.(true), []);
+    onValidityRef.current?.(!invalid, text);
+  }, [invalid, text]);
 
   return (
     <span className={`number-field${invalid ? ' invalid' : ''}${className ? ` ${className}` : ''}`}>

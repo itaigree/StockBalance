@@ -127,9 +127,20 @@ export function MergeModal({ category, onClose, onDone }: { category: Category; 
 }
 
 /** Move part of a category's shares and cash into a new category. */
-export function SplitModal({ category, onClose, onDone }: { category: Category; onClose: () => void; onDone: (msg: string) => void }) {
+export function SplitModal({
+  category: opened,
+  onClose,
+  onDone,
+}: {
+  category: Category;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
   const { data, actions } = useApp();
-  const held = Object.entries(category.holdings).filter(([, n]) => n > 0);
+  // What the category has now (a purchase may be recorded in another window while this is open).
+  const now = data.categories.find((c) => c.id === opened.id);
+  const category = now ?? opened;
+  const held = now ? Object.entries(now.holdings).filter(([, n]) => n > 0) : [];
   const [name, setName] = useState('');
   const [move, setMove] = useState<Record<string, number | null>>({});
   const [cash, setCash] = useState<number | null>(0);
@@ -166,7 +177,7 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
     : cash !== null && (cash < 0 || cash > maxCash + 0.005)
       ? `Between ₪0 and ${fmtIls(maxCash)}.`
       : null;
-  const valid = !nameError && !cashError && held.every(([t, have]) => !rowError(t, have));
+  const valid = !!now && !nameError && !cashError && held.every(([t, have]) => !rowError(t, have));
 
   const applyPercent = () => {
     if (percent === null || percent < 0 || percent > 100) return;
@@ -214,6 +225,11 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
       }
     >
       <div className="stack">
+        {!now && (
+          <div className="banner error" role="alert">
+            {opened.name} was deleted or merged somewhere else, so it can't be split.
+          </div>
+        )}
         <label className="field">
           Name of the new category
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Naveh" autoFocus />

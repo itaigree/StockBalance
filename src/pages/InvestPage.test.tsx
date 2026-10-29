@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { planPurchase } from '../engine';
 import { priceMap } from '../state/AppState';
-import { renderApp, sample, savedData } from '../test-utils';
+import { renderApp, sample, saveFromOtherCopy, savedData } from '../test-utils';
 
 const orderRows = () =>
   within(screen.getByRole('region', { name: 'Orders to place' }))
@@ -378,5 +378,101 @@ describe('InvestPage', () => {
     expect(tx.allocations).toEqual([{ categoryId: 'sample-kids', ticker: 'AMZN', shares: 2, costUsd: 400, priceUsd: 200 }]);
     expect(savedData().categories.find((c) => c.id === 'sample-kids')!.holdings.AMZN).toBe(2);
   });
-});
 
+  describe('while another copy of the app changes things', () => {
+    /** A purchase recorded in the other copy. */
+    const elsewhere = () => ({
+      id: 'elsewhere',
+      date: '2026-10-29T10:00:00.000Z',
+      usdIls: 3.7,
+      fxFeePercent: 0,
+      orders: [],
+      allocations: [],
+      cash: [],
+    });
+    it('records the plan the user confirmed, even if prices change while the dialog is open', async () => {
+      const data = sample();
+      const { user } = renderApp('invest', data);
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      const planned = orderRows();
+      await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+      const newer = sample();
+      for (const t of Object.keys(newer.prices)) newer.prices[t] = { ...newer.prices[t], priceUsd: newer.prices[t].priceUsd * 0.6 };
+      saveFromOtherCopy(newer);
+      const dialog = screen.getByRole('dialog', { name: 'Record the purchase' });
+      await user.click(within(dialog).getByRole('button', { name: 'Record purchase' }));
+      await waitFor(() => expect(savedData().transactions).toHaveLength(1));
+      expect(savedData().transactions[0].orders.map((o) => `${o.ticker} ${o.shares}`)).toEqual(planned);
+    });
+
+    it('closes the record dialog for good when the other copy records a purchase', async () => {
+      const { user } = renderApp('invest', sample());
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+      const after = sample();
+      after.transactions = [elsewhere()];
+      saveFromOtherCopy(after);
+      expect(screen.queryByRole('dialog', { name: 'Record the purchase' })).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '500');
+      expect(screen.queryByRole('dialog', { name: 'Record the purchase' })).not.toBeInTheDocument();
+    });
+
+    it('hides the banner\'s Undo once another purchase is the newest, so it never undoes that one', async () => {
+      const { user } = renderApp('invest', sample());
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+      await user.click(screen.getByRole('button', { name: 'Record purchase' }));
+      expect(screen.getByText(/Purchase recorded/)).toBeInTheDocument();
+      await waitFor(() => expect(savedData().transactions).toHaveLength(1));
+      const after = savedData();
+      after.transactions.push(elsewhere());
+      saveFromOtherCopy(after);
+      expect(screen.queryByText(/Purchase recorded/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('does not plan with a number it cannot read, and keeps it as typed', async () => {
+    const { user } = renderApp('invest', sample());
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    expect(screen.getByRole('button', { name: 'I made a purchase' })).toBeInTheDocument();
+    const fee = screen.getByLabelText(/^Currency conversion fee/);
+    await user.clear(fee);
+    await user.type(fee, '0,5');
+    expect(screen.getByRole('alert')).toHaveTextContent(/Some numbers can't be read/);
+    expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+    await user.clear(fee);
+    await user.type(fee, '0.5');
+    expect(screen.getByRole('button', { name: 'I made a purchase' })).toBeInTheDocument();
+
+    const kids = screen.getByLabelText('New money for Kids');
+    await user.clear(kids);
+    await user.type(kids, '1000..');
+    expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+    // Giving Kids "the rest" hides its field, so its text no longer counts.
+    await user.click(screen.getByRole('button', { name: 'All the rest to Kids' }));
+    expect(screen.getByRole('button', { name: 'I made a purchase' })).toBeInTheDocument();
+
+    const rate = screen.getByLabelText(/^USD\/ILS rate for this purchase/);
+    await user.clear(rate);
+    await user.type(rate, '3,65');
+    await user.tab();
+    expect(rate).toHaveValue('3,65');
+    expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+  });
+
+  it('invests the cash left from earlier purchases when 0 new money is entered', async () => {
+    const data = sample();
+    data.categories[1] = { ...data.categories[1], cashIls: 5000 };
+    const { user } = renderApp('invest', data);
+    expect(screen.getByText('Enter an amount to see what to buy.')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '0');
+    expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+    await user.click(screen.getByRole('button', { name: 'Record purchase' }));
+    await waitFor(() => expect(savedData().transactions).toHaveLength(1));
+    const kids = savedData().transactions[0].cash.find((c) => c.categoryId === 'sample-kids')!;
+    expect(kids.newMoneyIls).toBe(0);
+    expect(kids.spentIls).toBeGreaterThan(0);
+  });
+});

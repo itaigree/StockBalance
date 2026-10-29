@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderApp, sample } from '../test-utils';
 
@@ -77,5 +77,19 @@ describe('backups', () => {
     await user.click(screen.getByRole('button', { name: 'Back up now' }));
     expect(download).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/Backed up\./)).toBeInTheDocument();
+  });
+});
+
+describe('backup reminder with several copies of the app open', () => {
+  it('goes away when another copy makes a backup', async () => {
+    const data = sample();
+    renderApp('portfolio', data);
+    expect(screen.getByText(REMINDER)).toBeInTheDocument();
+    const { markBackedUp } = await import('../data/backupMark');
+    act(() => {
+      markBackedUp(data);
+      window.dispatchEvent(new StorageEvent('storage', { key: 'stockbalance:backup' }));
+    });
+    expect(screen.queryByText(REMINDER)).not.toBeInTheDocument();
   });
 });

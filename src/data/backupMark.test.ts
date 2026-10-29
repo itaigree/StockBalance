@@ -63,9 +63,30 @@ describe('backup reminder', () => {
   it('can be put off for a week', () => {
     const storage = memoryStorage();
     const data = sampleData(t0);
-    const mark = snoozeBackupReminder({}, t0, storage);
+    const mark = snoozeBackupReminder(t0, storage);
     expect(backupReminder(data, loadBackupMark(storage), later(6))).toBeNull();
     expect(backupReminder(data, mark, later(7))).toBe('never');
+  });
+
+  it('keeps a backup made in another open copy when the reminder is put off', () => {
+    const storage = memoryStorage();
+    const data = sampleData(t0);
+    // This copy read the mark before the other one made a backup.
+    const stale = loadBackupMark(storage);
+    expect(backupReminder(data, stale, t0)).toBe('never');
+    markBackedUp(data, t0, storage);
+    snoozeBackupReminder(later(1), storage);
+    expect(loadBackupMark(storage)).toMatchObject({ at: t0.toISOString(), signature: dataSignature(data) });
+  });
+
+  it('gives the same signature to the same data whatever the order of its keys', () => {
+    const data = sampleData(t0);
+    const reordered = {
+      ...data,
+      categories: data.categories.map((c) => Object.fromEntries(Object.entries(c).reverse()) as typeof c),
+    };
+    expect(dataSignature(reordered)).toBe(dataSignature(data));
+    expect(dataSignature({ ...data, categories: data.categories.slice(1) })).not.toBe(dataSignature(data));
   });
 
   it('ignores a broken saved mark', () => {

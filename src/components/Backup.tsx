@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppState';
 import { canShareBackup, downloadBackup, shareableBackupFile, shareBackupFile } from '../data/backup';
 import {
@@ -7,6 +7,7 @@ import {
   loadBackupMark,
   markBackedUp,
   snoozeBackupReminder,
+  BACKUP_MARK_KEY,
   type BackupMark,
 } from '../data/backupMark';
 import { fmtAgo } from '../lib/format';
@@ -30,6 +31,15 @@ export function useBackup() {
   const [mark, setMark] = useState<BackupMark>(() => loadBackupMark());
   const [error, setError] = useState<string | null>(null);
   const [canShare] = useState(canShareBackup);
+
+  // Another open copy of the app may make a backup, snooze the reminder or delete everything.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === BACKUP_MARK_KEY) setMark(loadBackupMark());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const download = (): boolean => {
     setError(null);
@@ -58,7 +68,7 @@ export function useBackup() {
     download,
     share,
     backUp: async (): Promise<boolean> => (canShare && touchDevice() ? share() : download()),
-    snooze: () => setMark(snoozeBackupReminder(mark)),
+    snooze: () => setMark(snoozeBackupReminder()),
     /** Forget the last backup (after deleting all data). */
     forget: () => {
       clearBackupMark();

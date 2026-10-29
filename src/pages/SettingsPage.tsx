@@ -30,6 +30,8 @@ export function SettingsPage() {
   const backup = useBackup();
   const [showKey, setShowKey] = useState(false);
   const [proxyTest, setProxyTest] = useState<{ ok: boolean; text: string } | 'testing' | null>(null);
+  /** Counts tests and address changes, so a test's late answer doesn't show under another address. */
+  const proxyTestRun = useRef(0);
   const [minOrder, setMinOrder] = useState<number | null>(settings.minOrderUsd);
   const [maxTickers, setMaxTickers] = useState<number | null>(settings.maxTickersPerPurchase);
   const [fee, setFee] = useState<number | null>(settings.fxFeePercent);
@@ -122,6 +124,7 @@ export function SettingsPage() {
               placeholder="https://stockbalance-prices.yourname.workers.dev"
               onChange={(e) => {
                 actions.updateSettings({ yahooProxyUrl: e.target.value.trim() });
+                proxyTestRun.current += 1;
                 setProxyTest(null);
               }}
               autoComplete="off"
@@ -134,8 +137,10 @@ export function SettingsPage() {
               className="secondary small"
               disabled={!settings.yahooProxyUrl || proxyTest === 'testing'}
               onClick={async () => {
+                const run = ++proxyTestRun.current;
                 setProxyTest('testing');
                 const r = await fetchPrices(['VOO'], { ...settings, priceProvider: 'yahoo' });
+                if (run !== proxyTestRun.current) return;
                 setProxyTest(
                   r.quotes.VOO
                     ? { ok: true, text: `Works: VOO is $${r.quotes.VOO.priceUsd.toFixed(2)}.` }

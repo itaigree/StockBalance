@@ -14,7 +14,8 @@ interface Props {
   usdIls: number;
   fxFeePercent: number;
   onClose: () => void;
-  onRecorded: () => void;
+  /** Called with the id of the purchase recorded. */
+  onRecorded: (txId: string) => void;
 }
 
 /** A stock bought that wasn't in the plan; it goes entirely to one category. */
@@ -79,6 +80,10 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
 
   const record = () => {
     if (!valid) return;
+    if (plan.categories.some((c) => !data.categories.some((x) => x.id === c.categoryId))) {
+      setError('A category of this plan was deleted or merged meanwhile. Close this and plan again.');
+      return;
+    }
     const [y, m, d] = date.split('-').map(Number);
     const orders = exact
       ? plan.orders.map((o) => ({ ticker: o.ticker, shares: o.shares, priceUsd: o.priceUsd }))
@@ -93,7 +98,7 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
         newId(),
       );
       actions.recordTransaction(tx);
-      onRecorded();
+      onRecorded(tx.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

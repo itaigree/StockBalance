@@ -125,3 +125,13 @@ describe('AppStateProvider', () => {
     expect(savedData().categories.find((c) => c.id === 'sample-kids')!.cashIls).toBe(999);
   });
 });
+
+describe('a saved copy that could not be read', () => {
+  it('stops saying so once the user restores a backup or starts anew', () => {
+    window.localStorage.setItem('stockbalance:data', '{not json');
+    const app = renderProvider();
+    expect(app.current!.loadError).toMatch(/couldn't be read/);
+    act(() => app.current!.actions.startOver(sample()));
+    expect(app.current!.loadError).toBeNull();
+  });
+});

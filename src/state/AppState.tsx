@@ -129,7 +129,7 @@ export function priceMap(prices: Record<string, PriceQuote>): Record<string, num
 export function AppStateProvider({ children, initialData }: { children: ReactNode; initialData?: AppData }) {
   const [initial] = useState(() => (initialData ? { data: initialData } : loadData()));
   const [data, dispatch] = useReducer(reducer, initial.data);
-  const [loadError] = useState<string | null>(initial.error ?? null);
+  const [loadError, setLoadError] = useState<string | null>(initial.error ?? null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [market, setMarket] = useState<MarketStatus>({ loading: false, lastRun: null, priceFailures: {}, fxError: null });
 
@@ -222,6 +222,8 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
         // New data: fetch everything again (prices and the exchange rate) once it has stocks.
         requested.current.clear();
         refreshedOnce.current = false;
+        // Restoring a backup or starting anew is what the "couldn't be read" message asks for.
+        setLoadError(null);
         dispatch({ type: 'replace', data: d });
         setGeneration((g) => g + 1);
       },

@@ -190,7 +190,16 @@ the inputs come back and the plan is made again for the categories as they are. 
 recorded or undone since (e.g. in another tab), nothing is restored, and an open Invest page starts
 over, so the same money isn't planned and recorded twice. Plans saved by older versions (without
 these fingerprints) are restored when all their categories still exist.
-An empty fee means no fee; a negative amount, minimum order or fee stops planning with a message.
+An empty fee means no fee; a negative amount, minimum order or fee stops planning with a message, and
+so does a number that can't be read ("0,5", "1000..") in the amount, a category's amount (unless it
+gets "the rest") or an option: it isn't read as empty, and a rate typed that way stays as typed. An
+amount of 0 plans with the cash carried over from earlier purchases (only an empty amount means
+"not started").
+The record dialog records the plan as it was when "I made a purchase" was pressed, even if prices
+or the rate change while it is open; it closes when a purchase is recorded or undone elsewhere. The
+"Purchase recorded" banner's Undo undoes the purchase this page recorded, and goes away once another
+purchase is the newest. Undoing warns about each stock a category now owns less of than the purchase
+gave it, adding up all the parts the purchase gave that category.
 
 ## Persistence
 
@@ -213,6 +222,11 @@ categories, purchases and settings, and the newest purchase's id — not part of
 Portfolio page shows a reminder when there is data and no backup yet, when purchases changed since
 the last backup (recorded or undone — a fingerprint of all purchase ids), or when it is 30 days old
 and anything else changed. *Later* hides it for 7 days. Deleting all data forgets the last backup.
+The fingerprint doesn't depend on the order of keys in the data (saved categories and reloaded
+ones list their fields in different orders). Open copies of the app follow each other's backups,
+and *Later* adds to the mark as stored now, so it never forgets a backup made in another copy.
+The "saved data couldn't be read" message goes away once the user restores a backup, loads the
+sample or deletes all data.
 
 ## Prices and FX
 
@@ -254,6 +268,11 @@ applies to every ticker typed in the app and to saved data when it loads.
   the new category's money rule starts as "nothing by default". Past purchases stay with the
   original category.
 - Both clear the saved Invest plan, which may refer to the old categories.
+- Editing or splitting a category works from what it has when it is saved: shares and cash the
+  user didn't change in the editor are taken as stored then (a purchase recorded in another copy
+  of the app while the editor was open is kept), and saving is refused, with a message, when a
+  number the user changed was also changed elsewhere or the category was deleted or merged
+  meanwhile.
 
 ## Stock groups
 
@@ -266,14 +285,21 @@ names (with their shares when the split isn't equal). Clicking it opens the grou
 user sets the group's target in the category first, then how it is split between its stocks: equally,
 or as each stock's share of the group (e.g. AMZN 60% + TSLA 40%), which must add up to 100% (with a
 "Scale to 100%"). Saving writes each stock's target as the group's target × its share. A group whose
-saved stock targets differ opens with its own split (the shares rounded to 0.01% to add up to exactly
-100%); switching to an own split starts from the equal shares. In the box another single stock of the
-category can be moved into the group, and a stock taken out of it; the targets move with it so the
-category's total doesn't change: moving in raises the group's target by the stock's target, taking
-out gives the stock its part of the group's target and lowers the group's by as much (the others'
-shares grow to fill the group again). A group left without stocks is removed. Scaling targets to
-100% (single stocks and groups) and splitting into shares use largest-remainder rounding to 0.01%,
-so no target ends up below 0.
+saved stock targets differ opens with its own split: the shares are shown rounded to 0.01% (adding
+up to exactly 100%), but the exact share is kept while the one shown isn't changed, so opening and
+saving a category doesn't change its targets. Switching to an own split starts from the equal shares.
+In the box another single stock of the category can be moved into the group (chosen in a list, then
+"Move in"), and a stock taken out of it; the targets move with it so the category's total doesn't
+change. Moving in raises the group's target by the stock's target and keeps every stock's part of the
+category, so an equal split becomes the group's own split when the parts differ (VXUS 25% and BND
+15% → 40%, split 62.5% / 37.5%); when the group has no target yet, or the stock has none, the
+others keep their shares and the stock's share is left to set. Taking out gives the stock its part
+of the group's target, rounded to 0.01%, and lowers the group's target by exactly that (the others'
+shares grow to fill the group again). A group left without stocks is removed, with any blank rows.
+Scaling targets to 100% (single stocks and groups) and splitting into shares use largest-remainder
+rounding to 0.01%, so no target ends up below 0. A number that can't be read keeps its text, and
+blocks saving, also while the stock list and a group box take turns on screen; when saving is
+refused because of something the open group box doesn't show, the box closes so it can be seen.
 
 In the plan a group is balanced as one unit. Step 1 water-fills the category's single stocks and
 groups (a group's weight is its total target, its value that of all its stocks together); a group's

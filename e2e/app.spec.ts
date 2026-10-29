@@ -138,7 +138,9 @@ test('groups on a phone: move stocks into a group and split it by shares of the 
   await box.getByLabel('Group name, group 1').fill('Abroad');
   const moveIn = box.getByLabel("Move one of the category's stocks into the group");
   await moveIn.selectOption({ label: 'VXUS (25%)' });
+  await box.getByRole('button', { name: 'Move in' }).click();
   await moveIn.selectOption({ label: 'BND (15%)' });
+  await box.getByRole('button', { name: 'Move in' }).click();
   await expect(box.getByLabel('Group target percent, group 1')).toHaveValue('40');
   await box.getByRole('radio', { name: /My own split/ }).check();
   await box.getByLabel('Share of the group, row 2').fill('60');

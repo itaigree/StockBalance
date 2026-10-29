@@ -101,8 +101,11 @@ async function yahooOne(
   timeoutMs: number,
 ): Promise<One & { unavailable?: boolean }> {
   const r = await getJson(fetchImpl, yahooChartUrl(yahooSymbol(ticker), proxyUrl), timeoutMs);
+  // The proxy or forwarder is there, but Yahoo is refusing for a while: say so, and keep trying the others.
+  if (r.status === 429) return { error: 'Yahoo is limiting requests; try again in a few minutes.' };
   if (!r.ok) {
     if (r.kind === 'timeout') return { error: "Yahoo didn't answer in time." };
+    if (r.status !== undefined && r.status >= 500) return { error: `Yahoo had a problem (HTTP ${r.status}); try again later.` };
     return { error: unavailableMessage(proxyUrl), unavailable: true };
   }
   const error = pick(r.json, 'chart', 'error');

@@ -5,7 +5,7 @@ import { useApp } from '../state/AppState';
 import { fmtIls, fmtPercent, fmtShares, isZeroMoney } from '../lib/format';
 import { categoryHref } from '../lib/router';
 import { describeRule } from '../lib/rules';
-import { targetItems } from '../lib/targetGroups';
+import { targetItems, type TargetItem } from '../lib/targetGroups';
 import { CategoryEditor } from '../components/CategoryEditor';
 import { MergeModal, SplitModal } from '../components/MergeSplitModals';
 import { Modal } from '../components/Modal';
@@ -71,13 +71,7 @@ export function CategoriesPage() {
                         ) : (
                           <span key={`g:${t.name}`} className="target-chip group-chip">
                             <strong>{t.name}</strong> {fmtPercent(t.percent, t.percent % 1 === 0 ? 0 : 1)}{' '}
-                            <span className="muted">
-                              (
-                              {t.equal
-                                ? t.tickers.join(', ')
-                                : t.tickers.map((tk, k) => `${tk} ${fmtPercent(t.parts[k], t.parts[k] % 1 === 0 ? 0 : 1)}`).join(', ')}
-                              )
-                            </span>
+                            <span className="muted">({groupStocks(t)})</span>
                           </span>
                         ),
                       )
@@ -201,6 +195,17 @@ export function CategoriesPage() {
       )}
     </>
   );
+}
+
+/** A group's stocks for its chip: their names, with each one's share of the group if it isn't split equally. */
+function groupStocks(t: Extract<TargetItem, { kind: 'group' }>): string {
+  if (t.equal) return t.tickers.join(', ');
+  return t.tickers
+    .map((ticker, k) => {
+      const share = Math.round((t.parts[k] / t.percent) * 1000) / 10;
+      return `${ticker} ${fmtPercent(share, share % 1 === 0 ? 0 : 1)}`;
+    })
+    .join(', ');
 }
 
 function HoldingsSummary({ category }: { category: Category }) {

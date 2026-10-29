@@ -84,7 +84,13 @@ const transaction = z.object({
   fxFeePercent: z.number().nonnegative(),
   orders: z.array(z.object({ ticker, shares: z.number().nonnegative(), priceUsd: z.number().positive() })),
   allocations: z.array(
-    z.object({ categoryId: z.string(), ticker, shares: z.number().nonnegative(), costUsd: z.number().nonnegative() }),
+    z.object({
+      categoryId: z.string(),
+      ticker,
+      shares: z.number().nonnegative(),
+      costUsd: z.number().nonnegative(),
+      priceUsd: z.number().positive().optional(),
+    }),
   ),
   cash: z.array(z.object({ categoryId: z.string(), newMoneyIls: z.number(), spentIls: z.number() })),
   note: z.string().optional(),

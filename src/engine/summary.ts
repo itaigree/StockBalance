@@ -52,12 +52,16 @@ export function categoryPurchaseSummary(category: Category, transactions: Transa
       b.shares += a.shares;
       b.costUsd += a.costUsd;
     }
-    // The price paid comes from the orders: a category's cost is its exact part of an order while its
-    // shares are rounded to 6 decimals, so cost / shares can be a fraction of a cent off.
+    // The price paid comes from each part's order (cost / shares can be a fraction of a cent off, as a
+    // category's cost is its exact part of an order while its shares are rounded to 6 decimals).
+    // Purchases recorded before the price was kept use the average of the orders for the stock.
     for (const [ticker, b] of Object.entries(buys)) {
       const orders = tx.orders.filter((o) => o.ticker === ticker);
       const n = orders.reduce((s, o) => s + o.shares, 0);
-      b.priceUsd = n > 0 ? orders.reduce((s, o) => s + o.shares * o.priceUsd, 0) / n : b.shares > 0 ? b.costUsd / b.shares : 0;
+      const ordersPrice =
+        n > 0 ? orders.reduce((s, o) => s + o.shares * o.priceUsd, 0) / n : b.shares > 0 ? b.costUsd / b.shares : 0;
+      const parts = allocations.filter((a) => a.ticker === ticker);
+      b.priceUsd = b.shares > 0 ? parts.reduce((s, a) => s + a.shares * (a.priceUsd ?? ordersPrice), 0) / b.shares : ordersPrice;
     }
     const newMoneyIls = cash?.newMoneyIls ?? 0;
     rows.push({

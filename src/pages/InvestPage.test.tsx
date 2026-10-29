@@ -375,7 +375,7 @@ describe('InvestPage', () => {
     await waitFor(() => expect(savedData().transactions).toHaveLength(1));
     const tx = savedData().transactions[0];
     expect(tx.orders).toEqual([{ ticker: 'AMZN', shares: 2, priceUsd: 200 }]);
-    expect(tx.allocations).toEqual([{ categoryId: 'sample-kids', ticker: 'AMZN', shares: 2, costUsd: 400 }]);
+    expect(tx.allocations).toEqual([{ categoryId: 'sample-kids', ticker: 'AMZN', shares: 2, costUsd: 400, priceUsd: 200 }]);
     expect(savedData().categories.find((c) => c.id === 'sample-kids')!.holdings.AMZN).toBe(2);
   });
 });

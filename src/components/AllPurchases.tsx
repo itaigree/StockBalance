@@ -70,8 +70,8 @@ function TransactionCard({ tx, byId, onUndo }: { tx: Transaction; byId: Map<stri
       </div>
       {tx.orders.length === 0 && <p className="muted">Nothing was bought; the money was added to the categories' cash.</p>}
       <ul className="tx-orders">
-        {tx.orders.map((o) => (
-          <li key={o.ticker}>
+        {tx.orders.map((o, i) => (
+          <li key={`${o.ticker}-${i}`}>
             {fmtShares(o.shares)} × <span className="ticker">{o.ticker}</span> @ {fmtUsd(o.priceUsd)}
           </li>
         ))}

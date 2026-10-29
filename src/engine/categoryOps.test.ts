@@ -55,6 +55,26 @@ describe('mergeCategories', () => {
     expect(s.totals.newMoneyIls).toBe(1600);
   });
 
+  it('keeps the price paid when two parts of a purchase come together', () => {
+    const t: Transaction = {
+      ...tx,
+      orders: [
+        { ticker: 'VTI', shares: 1, priceUsd: 300 },
+        { ticker: 'VTI', shares: 3, priceUsd: 400 },
+      ],
+      allocations: [
+        { categoryId: 'Eitan', ticker: 'VTI', shares: 1, costUsd: 300, priceUsd: 300 },
+        { categoryId: 'Naveh', ticker: 'VTI', shares: 3, costUsd: 1200, priceUsd: 400 },
+      ],
+    };
+    const merged = mergeCategories([eitan, naveh], [t], { keepId: 'Eitan', absorbId: 'Naveh' }).transactions[0].allocations;
+    expect(merged).toEqual([{ categoryId: 'Eitan', ticker: 'VTI', shares: 4, costUsd: 1500, priceUsd: 375 }]);
+    // A part recorded before prices were kept: the merged price is unknown (the orders' average is shown).
+    const old = { ...t, allocations: [t.allocations[0], { ...t.allocations[1], priceUsd: undefined }] };
+    const mergedOld = mergeCategories([eitan, naveh], [old], { keepId: 'Eitan', absorbId: 'Naveh' }).transactions[0].allocations;
+    expect(mergedOld[0]).not.toHaveProperty('priceUsd');
+  });
+
   it('keeps undo working after a merge', () => {
     const before = [cat('A', { VT: 1 }, 10), cat('B', { VT: 2 }, 20)];
     const t: Transaction = {

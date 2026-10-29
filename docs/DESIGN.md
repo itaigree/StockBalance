@@ -169,7 +169,11 @@ A category's cost is its exact proportion of the order's cost (not the rounded s
 could charge a fraction of an agora more than it planned to spend); `spentIls` uses the executed FX
 rate and fee and is rounded to agorot, as is `cashIls`. In the per-category purchase summary, dollar
 amounts of new money are after the conversion fee, like the amounts spent, so they compare, and the
-price shown for a stock is the price of its orders (not cost ÷ rounded shares).
+price shown for a stock is the price of the orders the category's shares came from (not cost ÷
+rounded shares): each part of a purchase keeps its order's price (`priceUsd`), so when one stock is
+bought in two orders at different prices each category shows what it paid. Purchases recorded before
+that was kept show the average price of the stock's orders; merging categories combines the prices
+of matching parts weighted by shares.
 Applying a transaction adds the shares to `holdings` and adds `newMoneyIls − spentIls` to
 `cashIls`. Reverting does the opposite (removing tickers whose shares become ~0).
 
@@ -218,6 +222,9 @@ and anything else changed. *Later* hides it for 7 days. Deleting all data forget
 - On a hosted copy, Yahoo requests can go through the user's own Cloudflare Worker
   (`worker/yahoo-proxy.js`, address in `settings.yahooProxyUrl`), which forwards only
   `/v8/finance/chart/*` and adds CORS headers. Used for prices and for the `ILS=X` rate.
+  If the first request finds no proxy or forwarder (an HTML page, a 404), the other tickers aren't
+  requested. Yahoo limiting requests (429) or failing (5xx) is reported per ticker as temporary,
+  and the other tickers are still asked for.
 - Finnhub `https://finnhub.io/api/v1/quote?symbol=X&token=KEY`, price = `c` (0 means unknown). A 401
   means the key is wrong (the other tickers aren't requested); a 403 is one symbol the plan doesn't
   cover (e.g. non-US listings on the free plan) and the others are still priced.
@@ -252,13 +259,21 @@ applies to every ticker typed in the app and to saved data when it loads.
 
 A category's targets can include a group, e.g. "Corporates" 5% with AMZN and TSLA. It is stored as
 ordinary per-stock targets with a `group` label (AMZN 2.5% and TSLA 2.5%, both `group: "Corporates"`),
-and the group's target is the sum of its stocks' targets. In the category editor a group is either
-split equally (the user sets the group's percent, divided equally between its stocks) or has its
-own % per stock (e.g. AMZN 3% + TSLA 2%; the group's target is shown as their sum). Switching to
-per-stock starts from the equal parts (rounding left on the last stock); switching back keeps the
-total. A group whose saved stock targets differ opens per-stock. A stock can be moved into a group,
-out of it, or to another group; its part of the targets moves with it (its own target, or its
-equal part of an equally split group's, rounded to 0.01%), so the total doesn't change.
+and the group's target is the sum of its stocks' targets.
+
+In the category editor a group takes one line: its name, its target in the category and its stocks'
+names (with their shares when the split isn't equal). Clicking it opens the group's box, where the
+user sets the group's target in the category first, then how it is split between its stocks: equally,
+or as each stock's share of the group (e.g. AMZN 60% + TSLA 40%), which must add up to 100% (with a
+"Scale to 100%"). Saving writes each stock's target as the group's target × its share. A group whose
+saved stock targets differ opens with its own split (the shares rounded to 0.01% to add up to exactly
+100%); switching to an own split starts from the equal shares. In the box another single stock of the
+category can be moved into the group, and a stock taken out of it; the targets move with it so the
+category's total doesn't change: moving in raises the group's target by the stock's target, taking
+out gives the stock its part of the group's target and lowers the group's by as much (the others'
+shares grow to fill the group again). A group left without stocks is removed. Scaling targets to
+100% (single stocks and groups) and splitting into shares use largest-remainder rounding to 0.01%,
+so no target ends up below 0.
 
 In the plan a group is balanced as one unit. Step 1 water-fills the category's single stocks and
 groups (a group's weight is its total target, its value that of all its stocks together); a group's

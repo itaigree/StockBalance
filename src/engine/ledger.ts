@@ -40,7 +40,7 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
         // The cost follows the exact proportion, not the shares rounded to 6 decimals, so a category
         // that spends its whole budget isn't charged a fraction of an agora more than it has.
         const costUsd = ((o.shares * c.shares) / weight) * o.priceUsd;
-        allocations.push({ categoryId: c.id, ticker, shares: split[i], costUsd });
+        allocations.push({ categoryId: c.id, ticker, shares: split[i], costUsd, priceUsd: o.priceUsd });
       }
     });
     orders.push({ ticker, shares: o.shares, priceUsd: o.priceUsd });

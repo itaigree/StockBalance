@@ -70,6 +70,24 @@ describe('fetchPrices', () => {
     expect(r.failures.A).toMatch(/Finnhub API key/);
   });
 
+  it('tells Yahoo refusing for a while apart from a missing proxy, and keeps asking for the rest', async () => {
+    const text = (status: number) => () =>
+      new Response('Too Many Requests', { status, headers: { 'content-type': 'text/plain' } });
+    const { fn, calls } = router([
+      [/chart\/A\?/, text(429)],
+      [/chart\/B\?/, () => yahooOk(5)],
+      [/chart\/C\?/, text(503)],
+      [/chart\/D\?/, () => json({}, 429)],
+    ]);
+    const r = await fetchPrices(['A', 'B', 'C', 'D'], settings({ priceProvider: 'yahoo' }), fn, NOW);
+    expect(calls).toHaveLength(4);
+    expect(r.quotes.B).toMatchObject({ priceUsd: 5 });
+    expect(r.failures.A).toMatch(/limiting requests/);
+    expect(r.failures.D).toMatch(/limiting requests/);
+    expect(r.failures.C).toMatch(/HTTP 503/);
+    expect(r.failures.A).not.toMatch(/npm start/);
+  });
+
   it('falls back to Finnhub for what Yahoo could not price', async () => {
     const { fn, calls } = router([
       [/api\/yahoo/, () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain' } })],

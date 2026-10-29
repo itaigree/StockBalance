@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { AppData, Category, FxQuote, Id, PriceQuote, Settings, Transaction } from '../types';
 import { applyTransaction, revertTransaction } from '../engine';
-import { loadData, saveData } from '../data/storage';
+import { loadData, saveData, STORAGE_KEY } from '../data/storage';
+import { parseAppData } from '../data/schema';
 import { fetchPrices } from '../data/prices';
 import { fetchUsdIls } from '../data/fx';
 
@@ -90,7 +91,7 @@ export interface AppActions {
   refreshMarket(tickers?: string[]): Promise<void>;
 }
 
-interface AppContextValue {
+export interface AppContextValue {
   data: AppData;
   actions: AppActions;
   market: MarketStatus;
@@ -126,10 +127,32 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
   const [saveError, setSaveError] = useState<string | null>(null);
   const [market, setMarket] = useState<MarketStatus>({ loading: false, lastRun: null, priceFailures: {}, fxError: null });
 
-  // Persist every change.
+  // Persist every change (except data that just came from storage, which is already saved).
+  const fromStorage = useRef<AppData | null>(null);
   useEffect(() => {
+    if (data === fromStorage.current) return;
     setSaveError(saveData(data).error ?? null);
   }, [data]);
+
+  // Another copy of the app (another tab, or the installed app) saved newer data: take it, so this
+  // copy doesn't later save its older data over it.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || e.newValue === null) return;
+      let json: unknown;
+      try {
+        json = JSON.parse(e.newValue);
+      } catch {
+        return;
+      }
+      const parsed = parseAppData(json);
+      if (!parsed.ok) return;
+      fromStorage.current = parsed.data;
+      dispatch({ type: 'replace', data: parsed.data });
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -185,7 +208,12 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
 
   const actions = useMemo<AppActions>(
     () => ({
-      replaceData: (d) => dispatch({ type: 'replace', data: d }),
+      replaceData: (d) => {
+        // New data: fetch everything again (prices and the exchange rate) once it has stocks.
+        requested.current.clear();
+        refreshedOnce.current = false;
+        dispatch({ type: 'replace', data: d });
+      },
       upsertCategory: (category) => dispatch({ type: 'upsertCategory', category }),
       deleteCategory: (id) => dispatch({ type: 'deleteCategory', id }),
       moveCategory: (id, delta) => dispatch({ type: 'moveCategory', id, delta }),

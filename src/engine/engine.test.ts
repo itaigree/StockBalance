@@ -120,6 +120,14 @@ describe('splitContribution', () => {
     expect(r.warnings[0]).toMatch(/isn't assigned/);
   });
 
+  it('does not scale percentages that add up to exactly 100', () => {
+    // 17.6 + 48.2 + 34.2 is a hair above 100 in floating point.
+    const cats = [cat('a', {}, {}, { contribution: { kind: 'percent', percent: 17.6 } }), cat('b', {}, {}, { contribution: { kind: 'percent', percent: 48.2 } }), cat('c', {}, {}, { contribution: { kind: 'percent', percent: 34.2 } })];
+    const r = splitContribution(10000, cats);
+    expect(r.warnings).toEqual([]);
+    expect(r.amounts).toEqual({ a: 1760, b: 4820, c: 3420 });
+  });
+
   it('rounds to agorot and still adds up exactly', () => {
     const r = splitContribution(100, [c('a', { kind: 'remainder' }), c('b', { kind: 'remainder' }), c('c', { kind: 'remainder' })]);
     expect(r.amounts).toEqual({ a: 33.34, b: 33.33, c: 33.33 });
@@ -338,6 +346,26 @@ describe('planPurchase', () => {
       expect(sharesOf(plan, 'p')).toEqual({ AMZN: 70, TSLA: 30 });
     });
 
+    it('prefers one stock that can take all the money over a group that would need several', () => {
+      // World (60%) is 1020 short in total, but each of its stocks only 340; BND alone is 890 short.
+      const c: Category = {
+        ...cat('p', {}, { NVDA: 3500 / 180, BND: 1100 / 72, VTI: 1650 / 300, VXUS: 1650 / 65, VEA: 1650 / 55 }),
+        targets: [
+          { ticker: 'NVDA', percent: 20 },
+          { ticker: 'BND', percent: 20 },
+          { ticker: 'VTI', percent: 20, group: 'World' },
+          { ticker: 'VXUS', percent: 20, group: 'World' },
+          { ticker: 'VEA', percent: 20, group: 'World' },
+        ],
+      };
+      const prices = { NVDA: 180, BND: 72, VTI: 300, VXUS: 65, VEA: 55 };
+      const buys = sharesOf(planPurchase(input([c], prices, { p: 400 }, { strategy: 'fewest' })), 'p');
+      expect(Object.keys(buys)).toEqual(['BND']);
+      expect(buys.BND * 72).toBeCloseTo(400, 3);
+      const whole = planPurchase(input([c], prices, { p: 400 }, { strategy: 'fewest', wholeShares: true }));
+      expect(orderMap(whole)).toEqual({ BND: 5 });
+    });
+
     it('keeps whole-share leftovers as cash rather than opening another order', () => {
       // A is 275 short: 2 × $100 leaves $50, which won't buy another A.
       const c = abc({ A: 1, B: 10, C: 30 });
@@ -518,6 +546,22 @@ describe('ledger', () => {
     const after = applyTransaction(cats, tx);
     expect(after.map((c) => c.cashIls)).toEqual([0, 0, 0]);
     expect(after.reduce((s, c) => s + c.holdings.X, 0)).toBeCloseTo(1, 9);
+  });
+
+  it('charges each category exactly its part of an expensive share, not a rounded one', () => {
+    // 1 share of $3,000 split three ways at 3.7: each category's ₪3,700 is spent exactly.
+    const cats = [cat('a', { X: 100 }), cat('b', { X: 100 }), cat('c', { X: 100 })];
+    const budgets = { a: 3700, b: 3700, c: 3700 };
+    const p = planPurchase({ ...input(cats, { X: 3000 }, budgets, { wholeShares: true }), usdIls: 3.7 });
+    expect(p.orders).toEqual([{ ticker: 'X', shares: 1, priceUsd: 3000, costUsd: 3000 }]);
+    const tx = transactionFromPlan(
+      p,
+      { orders: [{ ticker: 'X', shares: 1, priceUsd: 3000 }], usdIls: 3.7, fxFeePercent: 0, date: 'd', newMoneyIls: budgets },
+      't',
+    );
+    expect(tx.cash.map((c) => c.spentIls)).toEqual([3700, 3700, 3700]);
+    expect(applyTransaction(cats, tx).map((c) => c.cashIls)).toEqual([0, 0, 0]);
+    expect(tx.allocations.reduce((s, a) => s + a.shares, 0)).toBeCloseTo(1, 9);
   });
 
   it('never leaves negative shares when reverting', () => {

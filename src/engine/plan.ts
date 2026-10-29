@@ -236,47 +236,67 @@ export function planPurchase(input: PlanInput): PlanResult {
 /**
  * Step 1: ideal dollar buys per category over the allowed tickers. Single stocks and groups are
  * balanced against each other; a group's money is then split between its allowed stocks. With
- * "fewest orders" both steps fill the one furthest below target first instead.
+ * "fewest orders" the stock furthest below target is filled first instead (see `fewestBuys`).
  */
 function idealBuys(cats: Cat[], allowed: Set<string>, fewest: boolean): PerCat {
   return cats.map((c) => {
+    if (!(c.budgetUsd > 0)) return new Map<string, number>();
+    if (fewest) return fewestBuys(c, allowed);
     const out = new Map<string, number>();
-    if (!(c.budgetUsd > 0)) return out;
     const units = unitsOf(c, allowed);
-    const values = units.map((u) => u.value);
-    const amounts = fewest
-      ? fillLargestGapFirst(
-          values,
-          units.map((u) => u.weight * c.total),
-          c.budgetUsd,
-        )
-      : waterfill(
-          values,
-          units.map((u) => u.weight),
-          c.budgetUsd,
-          c.total,
-        );
+    const amounts = waterfill(
+      units.map((u) => u.value),
+      units.map((u) => u.weight),
+      c.budgetUsd,
+      c.total,
+    );
     units.forEach((u, k) => {
       if (!(amounts[k] > 0)) return;
-      let inner = [amounts[k]];
-      if (u.tickers.length > 1) {
-        const memberValues = u.tickers.map((t) => c.values.get(t)!);
-        const memberWeights = u.tickers.map((t) => c.weights.get(t)!);
-        // A stock's target within the group: its part of the group's target among these stocks.
-        const groupTarget = u.weight * c.total;
-        const sumW = sum(memberWeights);
-        inner = fewest
-          ? fillLargestGapFirst(
-              memberValues,
-              memberWeights.map((w) => (groupTarget * w) / sumW),
+      const inner =
+        u.tickers.length === 1
+          ? [amounts[k]]
+          : waterfill(
+              u.tickers.map((t) => c.values.get(t)!),
+              u.tickers.map((t) => c.weights.get(t)!),
               amounts[k],
-            )
-          : waterfill(memberValues, memberWeights, amounts[k]);
-      }
+            );
       u.tickers.forEach((t, j) => inner[j] > 0 && out.set(t, inner[j]));
     });
     return out;
   });
+}
+
+/**
+ * "Fewest orders": fill the allowed stock furthest below its target first, up to its target, then
+ * the next. A stock in a group aims at its part of the group's target among the allowed stocks, and
+ * the group's stocks together never go past the group's target (so a group at or above target gets
+ * nothing).
+ */
+function fewestBuys(c: Cat, allowed: Set<string>): Map<string, number> {
+  const stocks = [...c.weights.keys()].filter((t) => allowed.has(t));
+  const names = [...new Set(stocks.flatMap((t) => c.groupOf.get(t) ?? []))];
+  const targets = stocks.map((t) => {
+    const name = c.groupOf.get(t);
+    if (name === undefined) return c.weights.get(t)! * c.total;
+    const g = c.groups.get(name)!;
+    const sumW = sum(g.members.filter((m) => allowed.has(m)).map((m) => c.weights.get(m)!));
+    return (g.weight * c.total * c.weights.get(t)!) / sumW;
+  });
+  const amounts = fillLargestGapFirst(
+    stocks.map((t) => c.values.get(t)!),
+    targets,
+    c.budgetUsd,
+    {
+      of: stocks.map((t) => {
+        const name = c.groupOf.get(t);
+        return name === undefined ? undefined : names.indexOf(name);
+      }),
+      caps: names.map((name) => c.groups.get(name)!.weight * c.total - c.groups.get(name)!.value),
+    },
+  );
+  const out = new Map<string, number>();
+  stocks.forEach((t, i) => amounts[i] > 0 && out.set(t, amounts[i]));
+  return out;
 }
 
 /** What is balanced in a category: each allowed single stock, and each group with an allowed stock. */

@@ -16,7 +16,14 @@ export type Route = { page: Page } | { page: 'category'; categoryId: string };
 export function routeFromHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
   const m = /^category\/(.+)$/.exec(path);
-  if (m) return { page: 'category', categoryId: decodeURIComponent(m[1]) };
+  if (m) {
+    try {
+      return { page: 'category', categoryId: decodeURIComponent(m[1]) };
+    } catch {
+      // A malformed escape (e.g. a cut-off link): use it as written, so the page says it doesn't exist.
+      return { page: 'category', categoryId: m[1] };
+    }
+  }
   return { page: PAGES.some((p) => p.id === path) ? (path as Page) : 'portfolio' };
 }
 

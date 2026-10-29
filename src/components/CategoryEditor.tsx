@@ -1,13 +1,12 @@
 import { Fragment, useState } from 'react';
 import type { Category, ContributionRule } from '../types';
 import { CATEGORY_COLORS, newId } from '../lib/ids';
-import { fmtPercent, normalizeTicker } from '../lib/format';
+import { fmtPercent, isTicker, normalizeTicker } from '../lib/format';
 import { RULE_EXPLANATION } from '../lib/rules';
 import { Modal } from './Modal';
 import { NumberField } from './NumberField';
 import './CategoryEditor.css';
 
-const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -104,12 +103,23 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const [rows, setRows] = useState<Row[]>(initial.rows);
   const [groups, setGroups] = useState<Group[]>(initial.groups);
   const [submitted, setSubmitted] = useState(false);
+  /** Number fields whose text can't be read ("rowKey:percent", "rowKey:shares"). */
+  const [unreadable, setUnreadable] = useState<Set<string>>(new Set());
+  const trackReadable = (id: string) => (valid: boolean) =>
+    setUnreadable((s) => {
+      if (valid !== s.has(id)) return s;
+      const next = new Set(s);
+      if (valid) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const unreadableRow = (r: Row) => unreadable.has(`${r.key}:percent`) || unreadable.has(`${r.key}:shares`);
 
   const updateRow = (key: string, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const updateGroup = (key: string, patch: Partial<Group>) =>
     setGroups((gs) => gs.map((g) => (g.key === key ? { ...g, ...patch } : g)));
-  const filled = rows.filter((r) => r.ticker.trim() !== '' || r.percent !== null || r.shares !== null);
+  const filled = rows.filter((r) => r.ticker.trim() !== '' || r.percent !== null || r.shares !== null || unreadableRow(r));
   const single = rows.filter((r) => !r.group);
   const membersOf = (g: Group) => rows.filter((r) => r.group === g.key);
   const filledMembers = (g: Group) => membersOf(g).filter((r) => r.ticker.trim() !== '');
@@ -148,8 +158,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     for (const r of filled) {
       const t = normalizeTicker(r.ticker);
       if (!t) e.rows[r.key] = 'Enter the ticker symbol.';
-      else if (!TICKER_RE.test(t)) e.rows[r.key] = 'Use letters, digits, "." or "-" (e.g. VOO, BRK.B).';
+      else if (!isTicker(t)) e.rows[r.key] = 'Use letters, digits, "." or "-" (e.g. VOO, BRK.B).';
       else if (seen.has(t)) e.rows[r.key] = `${t} is listed twice.`;
+      else if (unreadableRow(r)) e.rows[r.key] = 'Enter numbers only (e.g. 2.5), or leave it empty.';
       else if (ownTarget(r) && r.percent !== null && (r.percent < 0 || r.percent > 100))
         e.rows[r.key] = 'Target must be between 0 and 100%.';
       else if (r.group && ownTarget(r) && !((r.percent ?? 0) > 0)) e.rows[r.key] = 'Set this stock’s target (above 0%).';
@@ -338,6 +349,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             onChange={(v) => updateRow(r.key, { percent: v })}
             suffix="%"
             aria-label={`Target percent, row ${i + 1}`}
+            onValidityChange={trackReadable(`${r.key}:percent`)}
           />
         )}
       </td>
@@ -347,6 +359,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           value={r.shares}
           onChange={(v) => updateRow(r.key, { shares: v })}
           aria-label={`Shares owned, row ${i + 1}`}
+          onValidityChange={trackReadable(`${r.key}:shares`)}
         />
       </td>
       <td>

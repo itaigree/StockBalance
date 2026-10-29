@@ -33,9 +33,13 @@ export function transactionFromPlan(plan: PlanResult, executed: ExecutedPurchase
             .filter((c) => c.shares > 0);
     if (owners.length === 0) throw new Error(`${ticker}: no category planned to buy it.`);
     const split = apportion(o.shares, owners.map((c) => c.shares), SHARE_DECIMALS);
+    const weight = owners.reduce((s, c) => s + c.shares, 0);
     owners.forEach((c, i) => {
       if (split[i] > 0) {
-        allocations.push({ categoryId: c.id, ticker, shares: split[i], costUsd: split[i] * o.priceUsd });
+        // The cost follows the exact proportion, not the shares rounded to 6 decimals, so a category
+        // that spends its whole budget isn't charged a fraction of an agora more than it has.
+        const costUsd = ((o.shares * c.shares) / weight) * o.priceUsd;
+        allocations.push({ categoryId: c.id, ticker, shares: split[i], costUsd });
       }
     });
     orders.push({ ticker, shares: o.shares, priceUsd: o.priceUsd });

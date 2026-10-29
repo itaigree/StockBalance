@@ -52,6 +52,14 @@ describe('backup reminder', () => {
     expect(backupReminder(bought, mark, later(1))).toBe('purchases');
   });
 
+  it('reminds after undoing an older purchase too', () => {
+    const storage = memoryStorage();
+    const tx = (id: string) => ({ id }) as AppData['transactions'][number];
+    const data = { ...sampleData(t0), transactions: [tx('t1'), tx('t2')] };
+    const mark = markBackedUp(data, t0, storage);
+    expect(backupReminder({ ...data, transactions: [tx('t2')] }, mark, later(1))).toBe('purchases');
+  });
+
   it('can be put off for a week', () => {
     const storage = memoryStorage();
     const data = sampleData(t0);

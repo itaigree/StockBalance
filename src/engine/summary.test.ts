@@ -89,5 +89,21 @@ describe('categoryPurchaseSummary', () => {
     const sameDay = [txs[1], { ...txs[0], id: 'a-later', date: txs[1].date }];
     expect(categoryPurchaseSummary(eitan, sameDay).rows.map((r) => r.txId)).toEqual(['t1', 'a-later']);
   });
-});
 
+  it('counts the conversion fee in the dollar amounts, so nothing is left over when the cash is 0', () => {
+    // ₪1,010 at 1 ILS/USD with a 1% fee buys exactly $1,000 of stock.
+    const tx: Transaction = {
+      id: 'fee',
+      date: '2026-01-01T12:00:00.000Z',
+      usdIls: 1,
+      fxFeePercent: 1,
+      orders: [{ ticker: 'VTI', shares: 10, priceUsd: 100 }],
+      allocations: [{ categoryId: 'eitan', ticker: 'VTI', shares: 10, costUsd: 1000 }],
+      cash: [{ categoryId: 'eitan', newMoneyIls: 1010, spentIls: 1010 }],
+    };
+    const s = categoryPurchaseSummary(eitan, [tx]);
+    expect(s.rows[0].newMoneyUsd).toBeCloseTo(1000, 9);
+    expect(s.totals.leftoverIls).toBe(0);
+    expect(s.totals.leftoverUsd).toBeCloseTo(0, 9);
+  });
+});

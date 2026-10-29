@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Category } from '../types';
 import type { CategoryPlan, PlanResult } from '../engine';
-import { fmtIls, fmtPercent, fmtShares, fmtUsd } from '../lib/format';
+import { fmtIls, fmtOrderShares, fmtPercent, fmtShares, fmtUsd } from '../lib/format';
 import { groupOf } from '../lib/targetGroups';
 import { WeightBar } from './WeightBar';
 import './PlanResultView.css';
@@ -27,7 +27,7 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
   const copy = async () => {
     const lines = [
       `Convert about ${fmtIls(plan.totals.spentIls)} to USD`,
-      ...plan.orders.map((o) => `BUY ${fmtShares(o.shares)} ${o.ticker} (~${fmtUsd(o.costUsd)})`),
+      ...plan.orders.map((o) => `BUY ${fmtOrderShares(o.shares)} ${o.ticker} (~${fmtUsd(o.costUsd)})`),
     ];
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
@@ -137,7 +137,7 @@ export function PlanResultView({ plan, categories, wholeShares, onRecord, onKeep
                           />
                         </td>
                         <td className="ticker">{o.ticker}</td>
-                        <td className="num order-shares">{fmtShares(o.shares)}</td>
+                        <td className="num order-shares">{fmtOrderShares(o.shares)}</td>
                         <td className="num">{fmtUsd(o.priceUsd)}</td>
                         <td className="num">{fmtUsd(o.costUsd)}</td>
                         <td className="hide-sm">

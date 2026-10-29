@@ -1,4 +1,5 @@
 import type { AppData } from '../types';
+import { fingerprint } from '../lib/fingerprint';
 
 const KEY = 'stockbalance:backup';
 
@@ -13,8 +14,10 @@ export interface BackupMark {
   at?: string;
   /** `dataSignature` of the data that was backed up. */
   signature?: string;
-  /** Id of the newest purchase in that backup. */
+  /** Id of the newest purchase in that backup (marks from older versions only have this). */
   lastTxId?: string | null;
+  /** Fingerprint of all the purchases in that backup, so undoing an older one counts too. */
+  purchases?: string;
   /** The reminder is hidden until then. */
   snoozedUntil?: string;
 }
@@ -24,14 +27,12 @@ export interface BackupMark {
  * settings), so price refreshes don't count as changes.
  */
 export function dataSignature(data: AppData): string {
-  const text = JSON.stringify([data.categories, data.transactions, data.settings]);
-  // FNV-1a, 32 bit.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16);
+  return fingerprint(JSON.stringify([data.categories, data.transactions, data.settings]));
+}
+
+/** A fingerprint of which purchases there are. */
+function purchasesSignature(data: AppData): string {
+  return fingerprint(JSON.stringify(data.transactions.map((t) => t.id)));
 }
 
 export function loadBackupMark(storage: Storage | null = safeStorage()): BackupMark {
@@ -55,9 +56,23 @@ function saveBackupMark(mark: BackupMark, storage: Storage | null): BackupMark {
 /** Remember that `data` was just backed up. */
 export function markBackedUp(data: AppData, now: Date = new Date(), storage: Storage | null = safeStorage()): BackupMark {
   return saveBackupMark(
-    { at: now.toISOString(), signature: dataSignature(data), lastTxId: data.transactions.at(-1)?.id ?? null },
+    {
+      at: now.toISOString(),
+      signature: dataSignature(data),
+      lastTxId: data.transactions.at(-1)?.id ?? null,
+      purchases: purchasesSignature(data),
+    },
     storage,
   );
+}
+
+/** Forget the last backup (e.g. after deleting all data, which that backup no longer describes). */
+export function clearBackupMark(storage: Storage | null = safeStorage()): void {
+  try {
+    storage?.removeItem(KEY);
+  } catch {
+    // Only used for the reminder.
+  }
 }
 
 /** Hide the reminder for a while. */
@@ -76,7 +91,11 @@ export function backupReminder(data: AppData, mark: BackupMark, now: Date = new 
   if (mark.snoozedUntil && new Date(mark.snoozedUntil).getTime() > now.getTime()) return null;
   if (!mark.at) return 'never';
   if (mark.signature === dataSignature(data)) return null;
-  if ((data.transactions.at(-1)?.id ?? null) !== (mark.lastTxId ?? null)) return 'purchases';
+  const purchasesChanged =
+    mark.purchases !== undefined
+      ? mark.purchases !== purchasesSignature(data)
+      : (data.transactions.at(-1)?.id ?? null) !== (mark.lastTxId ?? null);
+  if (purchasesChanged) return 'purchases';
   return now.getTime() - new Date(mark.at).getTime() >= OLD_DAYS * DAY_MS ? 'old' : null;
 }
 

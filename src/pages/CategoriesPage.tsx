@@ -194,7 +194,7 @@ export function CategoriesPage() {
               ? `Its holdings (${Object.keys(deleting.holdings).length} stock${Object.keys(deleting.holdings).length === 1 ? '' : 's'}) will no longer be tracked. `
               : ''}
             {!isZeroMoney(deleting.cashIls) ? `Its cash (${fmtIls(deleting.cashIls)}) will be forgotten too. ` : ''}
-            Past purchases stay in History.
+            Past purchases stay under All purchases on the Portfolio page.
           </p>
           <p className="muted small-text">This can't be undone, except by restoring a backup.</p>
         </Modal>

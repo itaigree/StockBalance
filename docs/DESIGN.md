@@ -144,14 +144,16 @@ Invariants (tested with property-based tests):
 ## Fewest orders (`PlanOptions.strategy = 'fewest'`)
 
 A preference (Settings → Purchase defaults, and per purchase on the Invest page) for buying fewer
-different stocks. Step 1 changes: instead of water-filling, each category fills the unit (single
-stock or group) furthest below its target value first — the largest gap `w_ct · T_c − V_ct`, which
-is the largest shortfall in percentage points of the category after investing — up to that target,
-then the next largest gap, until the money runs out (ties go to the earlier target). Inside a group
-its stocks are filled the same way. As with water-filling nothing is pushed above its target, and
-with fractional shares the whole budget is spent (the positive gaps add up to at least the budget).
-This uses the fewest stocks that can take the money without going over any target, so a category
-never buys more different stocks than with water-filling (property-tested).
+different stocks. Step 1 changes: instead of water-filling, each category fills the allowed stock
+furthest below its target value first — the largest gap `w_ct · T_c − V_ct`, which is the largest
+shortfall in percentage points of the category after investing — up to that target, then the next
+largest gap, until the money runs out (ties go to the earlier target). A stock in a group aims at
+its part of the group's target (among the group's allowed stocks), and the group's stocks together
+never go past what is left of the group's target, so a group at or above target gets nothing and a
+group's total gap never outranks a single stock that could take the money alone. As with
+water-filling nothing is pushed above its target, and with fractional shares the whole budget is
+spent (the positive gaps add up to at least the budget). A category never buys more different
+stocks than with water-filling (property-tested on whole plans, with groups).
 
 With whole shares: the top-up only adds shares to stocks the plan already chose (it never opens a
 new order for leftovers, which stay as the category's cash); and a chosen stock that can't buy even
@@ -163,24 +165,33 @@ limits (`maxTickers`, `minOrderUsd`) apply as before.
 The user confirms or edits the executed shares and price of each planned order and the FX rate.
 For each ticker the executed shares are split between categories in proportion to the planned
 category shares (`q_ct`), rounded to 6 decimals with largest-remainder so they add up exactly.
-Category cost = shares × executed price; `spentIls` uses the executed FX rate and fee and is
-rounded to agorot, as is `cashIls`.
+A category's cost is its exact proportion of the order's cost (not the rounded shares × price, which
+could charge a fraction of an agora more than it planned to spend); `spentIls` uses the executed FX
+rate and fee and is rounded to agorot, as is `cashIls`. In the per-category purchase summary, dollar
+amounts of new money are after the conversion fee, like the amounts spent, so they compare.
 Applying a transaction adds the shares to `holdings` and adds `newMoneyIls − spentIls` to
 `cashIls`. Reverting does the opposite (removing tickers whose shares become ~0).
 
 When a plan buys nothing (e.g. too little money for a share), the user can still record it with no
 orders: the new money is added to each category's cash and is included next time.
 
-The plan shown on the Invest page is saved in the browser (with its inputs) until it is recorded or
-the inputs are cleared. After a reload — which also refreshes prices — that saved plan is shown
-and recorded as it was, instead of a recalculation with new prices; the user can choose to
-recalculate.
+The plan shown on the Invest page is saved in the browser (with its inputs, and a fingerprint of
+what it depends on in the categories: ids, targets, money rules, holdings and cash) until it is
+recorded or the inputs are cleared. It is saved again whenever anything in it changes, including the
+exchange rate. After a reload — which also refreshes prices — that saved plan is shown and recorded
+as it was, instead of a recalculation with new prices; the user can choose to recalculate. If the
+categories changed since (edited, deleted, merged, a backup restored, a purchase undone…), the saved
+plan is not used: the inputs come back and the plan is made again for the categories as they are.
+An empty fee means no fee; a negative amount, minimum order or fee stops planning with a message.
 
 ## Persistence
 
 Everything is stored in the browser's `localStorage` (key `stockbalance:data`) as `AppData`
 (versioned, validated with zod on load and on import). Backup = download the JSON; restore =
 import the JSON file. Nothing is sent anywhere except price/FX requests (ticker symbols only).
+When another copy of the app in the same browser (another tab, or the installed app) saves, this
+copy takes that data (the `storage` event), so it never saves its older data over it. Replacing the
+data (restore, sample, delete all) fetches prices and the exchange rate again.
 
 Where the device can share files (phones), the backup can also go through the share sheet (Drive,
 iCloud, email…). Some browsers share only plain-text files, so it is then the same JSON named
@@ -190,7 +201,8 @@ elsewhere.
 The browser remembers its last backup (`stockbalance:backup`: time, a fingerprint of the
 categories, purchases and settings, and the newest purchase's id — not part of `AppData`). The
 Portfolio page shows a reminder when there is data and no backup yet, when purchases changed since
-the last backup, or when it is 30 days old and anything else changed. *Later* hides it for 7 days.
+the last backup (recorded or undone — a fingerprint of all purchase ids), or when it is 30 days old
+and anything else changed. *Later* hides it for 7 days. Deleting all data forgets the last backup.
 
 ## Prices and FX
 
@@ -200,7 +212,9 @@ the last backup, or when it is 30 days old and anything else changed. *Later* hi
 - On a hosted copy, Yahoo requests can go through the user's own Cloudflare Worker
   (`worker/yahoo-proxy.js`, address in `settings.yahooProxyUrl`), which forwards only
   `/v8/finance/chart/*` and adds CORS headers. Used for prices and for the `ILS=X` rate.
-- Finnhub `https://finnhub.io/api/v1/quote?symbol=X&token=KEY`, price = `c` (0 means unknown).
+- Finnhub `https://finnhub.io/api/v1/quote?symbol=X&token=KEY`, price = `c` (0 means unknown). A 401
+  means the key is wrong (the other tickers aren't requested); a 403 is one symbol the plan doesn't
+  cover (e.g. non-US listings on the free plan) and the others are still priced.
 - FX fallbacks: Frankfurter `https://api.frankfurter.dev/v1/latest?base=USD&symbols=ILS` →
   `rates.ILS`; then open.er-api `https://open.er-api.com/v6/latest/USD` → `rates.ILS`.
 - Any price or the FX rate can be overridden manually; manual values are kept until the next
@@ -212,7 +226,8 @@ Settings → Import holdings reads a Yahoo Finance portfolio export (CSV). In th
 chooses, per portfolio, an existing category (its holdings are replaced; targets, rules and cash are
 kept), a new category (name editable; defaults to the portfolio name), or "don't import". The
 default is the category with the same name, if any. Portfolios sent to the same category are added
-together. Shares are buys minus sells; non-USD rows are skipped.
+together. Shares are buys minus sells; non-USD rows are skipped. Yahoo's share-class symbols are
+turned into the app's form (BRK-B → BRK.B), so they match targets typed in the app.
 
 ## Merging and splitting categories (`mergeCategories`, `splitCategory`)
 

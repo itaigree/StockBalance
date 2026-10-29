@@ -148,6 +148,21 @@ describe('planPurchase invariants', () => {
     );
   });
 
+  it('with "fewest orders", buys no more different stocks in a category than balancing does', () => {
+    fc.assert(
+      fc.property(inputArb, (raw) => {
+        const options = { wholeShares: false, minOrderUsd: 0, maxTickers: null };
+        const fewest = planPurchase({ ...raw, options: { ...options, strategy: 'fewest' } });
+        const balance = planPurchase({ ...raw, options: { ...options, strategy: 'balance' } });
+        // Ignore crumbs: rounding to millionths of a share decides whether sub-cent buys survive.
+        fewest.categories.forEach((c, i) =>
+          expect(c.buys.filter((b) => b.costUsd >= 0.01).length).toBeLessThanOrEqual(balance.categories[i].buys.length),
+        );
+      }),
+      RUNS,
+    );
+  });
+
   it('invests the whole budget with fractional shares and no limits', () => {
     fc.assert(
       fc.property(inputArb, (raw) => {
@@ -282,36 +297,51 @@ describe('performance', () => {
 });
 
 describe('"fewest orders" filling', () => {
-  it('fills the largest gaps first, never above target, using no more positions than balancing', () => {
+  it('fills the largest gaps first, never above a target or a shared cap, using no more positions than balancing', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.record({ value: fc.double({ min: 0, max: 1000, noNaN: true }), weight: fc.integer({ min: 1, max: 100 }) }), {
-          minLength: 1,
-          maxLength: 6,
-        }),
-        fc.double({ min: 0, max: 5000, noNaN: true }),
+        fc.array(
+          fc.record({
+            value: fc.double({ min: 0, max: 1000, noNaN: true }),
+            weight: fc.integer({ min: 1, max: 100 }),
+            group: fc.constantFrom(undefined, undefined, 0, 1),
+          }),
+          { minLength: 1, maxLength: 6 },
+        ),
+        fc.oneof(fc.constant(0), fc.double({ min: 0.01, max: 5000, noNaN: true })),
         fc.double({ min: 0, max: 1000, noNaN: true }),
-        (positions, budget, otherHoldings) => {
+        fc.tuple(fc.double({ min: -500, max: 1500, noNaN: true }), fc.double({ min: -500, max: 1500, noNaN: true })),
+        (positions, budget, otherHoldings, caps) => {
           const wsum = positions.reduce((a, p) => a + p.weight, 0);
           const weights = positions.map((p) => p.weight / wsum);
           const values = positions.map((p) => p.value);
           const total = values.reduce((a, v) => a + v, 0) + otherHoldings + budget;
           const targets = weights.map((w) => w * total);
           const gaps = values.map((v, i) => targets[i] - v);
-
-          const fewest = fillLargestGapFirst(values, targets, budget);
-          const balance = waterfill(values, weights, budget, total);
           const bought = (xs: number[]) => xs.map((x, i) => (x > 1e-9 ? i : -1)).filter((i) => i >= 0);
 
+          // Without shared caps: compare with balancing.
+          const fewest = fillLargestGapFirst(values, targets, budget);
+          const balance = waterfill(values, weights, budget, total);
           expect(bought(fewest).length).toBeLessThanOrEqual(bought(balance).length);
           fewest.forEach((x, i) => expect(x).toBeLessThanOrEqual(Math.max(0, gaps[i]) + 1e-9));
           const room = gaps.reduce((a, g) => a + Math.max(0, g), 0);
           expect(Math.abs(fewest.reduce((a, x) => a + x, 0) - Math.min(budget, room))).toBeLessThan(1e-6);
-          // Every stock bought is filled to its target except possibly the last one, and nothing
+          // Every position bought is filled to its target except possibly the last one, and nothing
           // left out is further below its target than one that was bought.
           expect(bought(fewest).filter((i) => fewest[i] < gaps[i] - 1e-6).length).toBeLessThanOrEqual(1);
           const smallestBoughtGap = Math.min(...bought(fewest).map((i) => gaps[i]));
           gaps.forEach((g, i) => fewest[i] <= 1e-9 && expect(g).toBeLessThanOrEqual(smallestBoughtGap + 1e-9));
+
+          // With shared caps (groups): nothing goes past its own target or its group's cap.
+          const shared = { of: positions.map((p) => p.group), caps };
+          const capped = fillLargestGapFirst(values, targets, budget, shared);
+          capped.forEach((x, i) => expect(x).toBeLessThanOrEqual(Math.max(0, gaps[i]) + 1e-9));
+          caps.forEach((cap, s) => {
+            const used = capped.reduce((a, x, i) => (shared.of[i] === s ? a + x : a), 0);
+            expect(used).toBeLessThanOrEqual(Math.max(0, cap) + 1e-9);
+          });
+          expect(capped.reduce((a, x) => a + x, 0)).toBeLessThanOrEqual(budget + 1e-9);
         },
       ),
       RUNS,

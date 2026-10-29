@@ -102,6 +102,53 @@ describe('CategoriesPage', () => {
     });
   });
 
+  it('keeps the clicked category when "Merge with" changes after choosing to keep the other', async () => {
+    const { user } = renderApp('categories', sample());
+    await user.click(screen.getAllByRole('button', { name: 'Merge' })[1]); // Kids
+    const dialog = screen.getByRole('dialog', { name: 'Merge Kids' });
+    await user.selectOptions(within(dialog).getByLabelText('Merge with'), 'sample-pension');
+    await user.click(within(dialog).getByRole('radio', { name: /Pension/ }));
+    await user.selectOptions(within(dialog).getByLabelText('Merge with'), 'sample-investments');
+    expect(within(dialog).getByRole('radio', { name: /Kids/ })).toBeChecked();
+    expect(within(dialog).getByLabelText('Name of the merged category')).toHaveValue('Kids');
+    await user.click(within(dialog).getByRole('button', { name: 'Merge' }));
+    await waitFor(() => expect(savedData().categories.map((c) => c.id)).toEqual(['sample-pension', 'sample-kids']));
+    expect(savedData().categories[1].contribution).toEqual({ kind: 'fixed', amountIls: 1000 });
+  });
+
+  it('moves everything at 100% even with shares that have more than 6 decimals', async () => {
+    const data = sample();
+    data.categories[0] = { ...data.categories[0], holdings: { VOO: 1.2345678, VXUS: 10 } };
+    const { user } = renderApp('categories', data);
+    await user.click(screen.getAllByRole('button', { name: 'Split' })[0]);
+    const dialog = screen.getByRole('dialog', { name: 'Split Pension' });
+    await user.type(within(dialog).getByLabelText('Name of the new category'), 'P2');
+    const percent = within(dialog).getByRole('textbox', { name: /percent/i });
+    await user.clear(percent);
+    await user.type(percent, '100');
+    await user.click(within(dialog).getByRole('button', { name: 'Move this % of everything' }));
+    expect(within(dialog).queryByText(/to move\./)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Split' }));
+    await waitFor(() => expect(savedData().categories[1].holdings).toEqual({ VOO: 1.2345678, VXUS: 10 }));
+    expect(savedData().categories[0].holdings).toEqual({});
+  });
+
+  it('refuses to save numbers it cannot read instead of dropping them', async () => {
+    const { user } = renderApp('categories', sample());
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[2]); // Investments
+    const dialog = screen.getByRole('dialog');
+    const aapl = within(dialog).getByLabelText('Shares owned, row 4');
+    await user.clear(aapl);
+    await user.type(aapl, '5.5.');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(dialog).getByText('Enter numbers only (e.g. 2.5), or leave it empty.')).toBeInTheDocument();
+    await user.clear(aapl);
+    await user.type(aapl, '5.5');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(savedData().categories[2].holdings.AAPL).toBe(5.5));
+  });
+
   it('splits part of a category into a new one', async () => {
     const { user } = renderApp('categories', sample());
     await user.click(screen.getAllByRole('button', { name: 'Split' })[0]); // Pension
@@ -322,6 +369,19 @@ describe('CategoriesPage', () => {
         { ticker: 'AMZN', percent: 15, group: 'Corp' },
       ]),
     );
+  });
+
+  it('saves a category holding a long imported ticker', async () => {
+    const data = sample();
+    data.categories[1] = { ...data.categories[1], holdings: { ...data.categories[1].holdings, AAPL250117C00150000: 1 } };
+    const { user } = renderApp('categories', data);
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[1]);
+    const dialog = screen.getByRole('dialog');
+    await user.clear(within(dialog).getByLabelText('Name'));
+    await user.type(within(dialog).getByLabelText('Name'), 'Children');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(savedData().categories[1]).toMatchObject({ name: 'Children', holdings: { AAPL250117C00150000: 1 } }));
   });
 
   it('validates groups', async () => {

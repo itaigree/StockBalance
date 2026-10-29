@@ -3,7 +3,7 @@ import type { Id } from '../types';
 import { transactionFromPlan, type PlanResult } from '../engine';
 import { useApp } from '../state/AppState';
 import { newId } from '../lib/ids';
-import { fmtIls, fmtRate, fmtShares, fmtUsd, normalizeTicker } from '../lib/format';
+import { fmtIls, fmtOrderShares, fmtRate, fmtUsd, isTicker, normalizeTicker } from '../lib/format';
 import { Modal } from './Modal';
 import { NumberField } from './NumberField';
 
@@ -26,7 +26,6 @@ interface ExtraRow {
   categoryId: string;
 }
 
-const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
 
 function todayLocal(): string {
   const d = new Date();
@@ -54,7 +53,7 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
   const extraError = (x: ExtraRow): string | null => {
     const t = normalizeTicker(x.ticker);
     if (!t) return 'Enter the ticker.';
-    if (!TICKER_RE.test(t)) return 'Use letters, digits, "." or "-".';
+    if (!isTicker(t)) return 'Use letters, digits, "." or "-".';
     if (!(x.shares !== null && x.shares > 0)) return 'Enter the shares bought.';
     const p = extraPrice(x);
     if (!(p !== null && p > 0)) return 'Enter the price paid.';
@@ -150,7 +149,7 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
             <ul className="exact-list">
               {plan.orders.map((o) => (
                 <li key={o.ticker}>
-                  {fmtShares(o.shares)} × <span className="ticker">{o.ticker}</span> @ {fmtUsd(o.priceUsd)}
+                  {fmtOrderShares(o.shares)} × <span className="ticker">{o.ticker}</span> @ {fmtUsd(o.priceUsd)}
                 </li>
               ))}
             </ul>
@@ -182,7 +181,7 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
                   {rows.map((r, i) => (
                     <tr key={r.ticker}>
                       <td className="ticker">{r.ticker}</td>
-                      <td className="num muted">{fmtShares(r.planned)}</td>
+                      <td className="num muted">{fmtOrderShares(r.planned)}</td>
                       <td className="num">
                         <NumberField
                           className="narrow"

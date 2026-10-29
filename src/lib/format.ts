@@ -18,9 +18,14 @@ export function isZeroMoney(n: number): boolean {
   return Math.abs(n) < 0.005;
 }
 
-/** Up to 4 decimals, trailing zeros trimmed: "12", "0.3333", "1,250.5". */
-export function fmtShares(n: number): string {
-  return fixNegZero(n).toLocaleString('en-US', { maximumFractionDigits: 4 });
+/** Up to 4 decimals (or `decimals`), trailing zeros trimmed: "12", "0.3333", "1,250.5". */
+export function fmtShares(n: number, decimals = 4): string {
+  return fixNegZero(n).toLocaleString('en-US', { maximumFractionDigits: decimals });
+}
+
+/** An order's quantity, exactly as planned and recorded (fractional orders go to 6 decimals). */
+export function fmtOrderShares(n: number): string {
+  return fmtShares(n, 6);
 }
 
 /** "12.3%". */
@@ -64,6 +69,14 @@ export function fmtAgo(iso: string, now: Date = new Date()): string {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   const days = Math.floor(s / 86400);
   return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * A ticker the app accepts when typed: letters, digits and . - = ^ (e.g. VOO, BRK.B, MXWO.L), up to
+ * 20 characters like saved and imported data, so anything that was imported can still be saved.
+ */
+export function isTicker(s: string): boolean {
+  return /^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$/.test(s);
 }
 
 /** Trim and upper-case a ticker symbol. */

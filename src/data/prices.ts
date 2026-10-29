@@ -94,6 +94,11 @@ export function yahooSymbol(ticker: string): string {
   return ticker.replace(/\.([ABC])$/, '-$1');
 }
 
+/** The app's form of a Yahoo symbol: share classes use a dot (BRK-B → BRK.B). */
+export function fromYahooSymbol(symbol: string): string {
+  return symbol.replace(/-([ABC])$/, '.$1');
+}
+
 async function yahooOne(
   ticker: string,
   proxyUrl: string,
@@ -139,20 +144,17 @@ async function finnhubPrices(tickers: string[], key: string, fetchImpl: FetchFn,
     if (keyRejected) return { error: 'Finnhub rejected the API key.' };
     const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(t)}&token=${encodeURIComponent(key)}`;
     const r = await getJson(fetchImpl, url, timeoutMs);
-    if (!r.ok) {
-      if (r.kind === 'timeout') return { error: "Finnhub didn't answer in time." };
-      if (r.status === 401 || r.status === 403) {
-        keyRejected = true;
-        return { error: 'Finnhub rejected the API key.' };
-      }
-      if (r.status === 429) return { error: 'Finnhub rate limit reached; try again in a minute.' };
-      return { error: "Couldn't reach Finnhub." };
-    }
-    if (r.status === 401 || r.status === 403) {
+    // 401 means the key is wrong, so the other tickers would fail too; 403 is Finnhub refusing one
+    // symbol that the plan doesn't cover (e.g. non-US listings on the free plan).
+    if (!r.ok && r.kind === 'timeout') return { error: "Finnhub didn't answer in time." };
+    const status = r.status;
+    if (status === 401) {
       keyRejected = true;
       return { error: 'Finnhub rejected the API key.' };
     }
-    if (r.status === 429) return { error: 'Finnhub rate limit reached; try again in a minute.' };
+    if (status === 403) return { error: "Finnhub doesn't give this stock's price on your plan." };
+    if (status === 429) return { error: 'Finnhub rate limit reached; try again in a minute.' };
+    if (!r.ok) return { error: "Couldn't reach Finnhub." };
     const apiError = pick(r.json, 'error');
     if (typeof apiError === 'string') return { error: `Finnhub: ${apiError}` };
     const price = positiveNumber(pick(r.json, 'c'));

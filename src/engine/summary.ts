@@ -60,7 +60,8 @@ export function categoryPurchaseSummary(category: Category, transactions: Transa
       ...(tx.note ? { note: tx.note } : {}),
       newMoneyIls,
       usdIls: tx.usdIls,
-      newMoneyUsd: newMoneyIls / tx.usdIls,
+      // What the money buys in dollars after the conversion fee, like `spentUsd`, so the two compare.
+      newMoneyUsd: newMoneyIls / (tx.usdIls * (1 + tx.fxFeePercent / 100)),
       buys,
       spentUsd: allocations.reduce((s, a) => s + a.costUsd, 0),
       spentIls: cash?.spentIls ?? 0,

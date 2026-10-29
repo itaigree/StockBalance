@@ -1,4 +1,5 @@
-import type { BuyStrategy } from '../types';
+import type { BuyStrategy, Category } from '../types';
+import { fingerprint } from './fingerprint';
 import type { PlanResult } from '../engine';
 
 const KEY = 'stockbalance:invest-draft';
@@ -28,6 +29,17 @@ export interface SavedPlan {
   newMoneyIls: Record<string, number>;
   usdIls: number;
   fxFeePercent: number;
+  /** `categoriesKey` of the categories the plan was made for (missing in older drafts). */
+  categoriesKey?: string;
+}
+
+/**
+ * A fingerprint of what a plan depends on in the categories (ids, targets, money rules, holdings,
+ * cash), so a saved plan isn't shown or recorded after they changed (edited, deleted, merged,
+ * restored from a backup, a purchase undone…).
+ */
+export function categoriesKey(categories: Category[]): string {
+  return fingerprint(JSON.stringify(categories.map((c) => [c.id, c.targets, c.contribution, c.holdings, c.cashIls])));
 }
 
 export interface InvestDraft {

@@ -57,6 +57,25 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(savedData().categories).toHaveLength(3));
   });
 
+  it('gives focus back to the button that opened a dialog', async () => {
+    const { user } = renderApp('settings', sample());
+    const open = screen.getByRole('button', { name: 'Delete all data' });
+    await user.click(open);
+    expect(screen.getByLabelText('Type DELETE to confirm')).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(open).toHaveFocus();
+  });
+
+  it('starts the delete confirmation empty every time', async () => {
+    const { user } = renderApp('settings', sample());
+    await user.click(screen.getByRole('button', { name: 'Delete all data' }));
+    await user.type(screen.getByLabelText('Type DELETE to confirm'), 'DELETE');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: 'Delete all data' }));
+    expect(screen.getByLabelText('Type DELETE to confirm')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Delete everything' })).toBeDisabled();
+  });
+
   it('deletes everything only after typing DELETE', async () => {
     const { user } = renderApp('settings', sample());
     await user.click(screen.getByRole('button', { name: 'Delete all data' }));

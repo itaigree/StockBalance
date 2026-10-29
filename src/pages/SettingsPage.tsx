@@ -38,6 +38,11 @@ export function SettingsPage() {
   const [confirmSample, setConfirmSample] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteText, setDeleteText] = useState('');
+  // However the dialog closes, it starts empty next time.
+  const closeDelete = () => {
+    setConfirmDelete(false);
+    setDeleteText('');
+  };
   const [done, setDone] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -361,10 +366,10 @@ export function SettingsPage() {
       {confirmDelete && (
         <Modal
           title="Delete all data?"
-          onClose={() => setConfirmDelete(false)}
+          onClose={closeDelete}
           footer={
             <>
-              <button type="button" className="secondary" onClick={() => setConfirmDelete(false)}>
+              <button type="button" className="secondary" onClick={closeDelete}>
                 Cancel
               </button>
               <button
@@ -373,8 +378,9 @@ export function SettingsPage() {
                 disabled={deleteText !== 'DELETE'}
                 onClick={() => {
                   actions.replaceData(emptyData());
-                  setConfirmDelete(false);
-                  setDeleteText('');
+                  // The last backup no longer describes what is here.
+                  backup.forget();
+                  closeDelete();
                   setDone('All data deleted.');
                 }}
               >

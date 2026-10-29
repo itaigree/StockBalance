@@ -5,7 +5,7 @@ import { priceMap, useApp } from '../state/AppState';
 import { navigateTo } from '../lib/router';
 import { fmtAgo, fmtDateTime, fmtIls, fmtRate, fmtUsd, isZeroMoney } from '../lib/format';
 import { newId } from '../lib/ids';
-import { clearDraft, loadDraft, saveDraft, type InvestInputs, type SavedPlan } from '../lib/investDraft';
+import { categoriesKey, clearDraft, loadDraft, saveDraft, type InvestInputs, type SavedPlan } from '../lib/investDraft';
 import { describeRule } from '../lib/rules';
 import { MarketBar } from '../components/MarketBar';
 import { NumberField } from '../components/NumberField';
@@ -37,8 +37,14 @@ export function InvestPage() {
   /** Stocks unticked in the orders list: skipped this time, their money goes to the other stocks. */
   const [excluded, setExcluded] = useState<string[]>(restored?.excluded ?? []);
   const [strategy, setStrategy] = useState<BuyStrategy>(restored?.strategy ?? settings.buyStrategy);
-  /** The restored plan, shown instead of recalculating until the user changes something. */
-  const [frozen, setFrozen] = useState<SavedPlan | null>(draft?.saved ?? null);
+  /**
+   * The restored plan, shown instead of recalculating until the user changes something — only if
+   * the categories are still as they were when it was made.
+   */
+  const catsKey = categoriesKey(categories);
+  const [frozen, setFrozen] = useState<SavedPlan | null>(() =>
+    draft?.saved.categoriesKey === catsKey ? draft.saved : null,
+  );
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState<'purchase' | 'cash' | null>(null);
   const [undoing, setUndoing] = useState(false);
@@ -59,7 +65,8 @@ export function InvestPage() {
     excluded,
     strategy,
   };
-  const inputsKey = JSON.stringify(inputs);
+  // Any change to the inputs or the categories means planning again.
+  const inputsKey = JSON.stringify(inputs) + catsKey;
   const lastInputsKey = useRef(inputsKey);
   useEffect(() => {
     if (lastInputsKey.current === inputsKey) return;
@@ -95,11 +102,12 @@ export function InvestPage() {
     excludeTickers: excluded,
     strategy,
   };
+  // Empty means none: no minimum, no limit, no fee.
   const optionsValid =
     (minOrder === null || minOrder >= 0) &&
     (maxTickers === null || (Number.isInteger(maxTickers) && maxTickers >= 1)) &&
-    feePercent !== null &&
-    feePercent >= 0;
+    (feePercent === null || feePercent >= 0);
+  const amountsValid = Object.values(overrides).every((v) => v === null || v >= 0);
 
   const prices = useMemo(() => priceMap(data.prices), [data.prices]);
   // Planning takes a few milliseconds, so it simply runs on every change.
@@ -115,7 +123,7 @@ export function InvestPage() {
     ),
   ].sort();
   const livePlan =
-    started && usdIls !== null && usdIls > 0 && optionsValid && missingPrices.length === 0
+    started && usdIls !== null && usdIls > 0 && optionsValid && amountsValid && missingPrices.length === 0
       ? planPurchase({ categories, prices, usdIls, fxFeePercent: feePercent ?? 0, budgetsIls: budgets, options })
       : null;
   const shown: SavedPlan | null =
@@ -125,17 +133,19 @@ export function InvestPage() {
       : null);
   const plan = shown?.plan ?? null;
 
-  // Keep the latest plan so it survives a reload; forget it once there is nothing to plan.
-  const planKey = livePlan ? JSON.stringify([livePlan.orders, livePlan.categories.map((c) => c.buys)]) : '';
+  // Keep the latest plan so it survives a reload; forget it once there is nothing to plan. While an
+  // amount or option is being corrected, the last good plan stays saved.
+  const planKey = livePlan && shown ? JSON.stringify({ ...shown, savedAt: '' }) : '';
+  const inputsOk = optionsValid && amountsValid;
   useEffect(() => {
-    if (frozen) return;
+    if (frozen || !inputsOk) return;
     if (!shown || shown.plan.errors.length > 0 || shown.plan.orders.length === 0) {
       clearDraft();
       return;
     }
-    saveDraft({ inputs, saved: { ...shown, savedAt: new Date().toISOString() } });
-    // `inputs` and `shown` are fully described by these keys.
-  }, [frozen, inputsKey, planKey]);
+    saveDraft({ inputs, saved: { ...shown, savedAt: new Date().toISOString(), categoriesKey: catsKey } });
+    // `inputs`, `shown` and the categories are fully described by these keys.
+  }, [frozen, inputsOk, inputsKey, planKey]);
 
   const afterRecording = (kind: 'purchase' | 'cash') => {
     setRecording(false);
@@ -351,6 +361,7 @@ export function InvestPage() {
             Minimum order
             <NumberField value={minOrder} onChange={setMinOrder} prefix="$" placeholder="0" />
             <span className="hint">Skip a stock if less than this would be bought this time.</span>
+            {minOrder !== null && minOrder < 0 && <span className="error-text">0 or more (or empty).</span>}
           </label>
           <label className="field">
             Max different stocks per purchase
@@ -375,8 +386,9 @@ export function InvestPage() {
           </label>
           <label className="field">
             Currency conversion fee
-            <NumberField value={feePercent} onChange={setFeePercent} suffix="%" className="narrow" />
+            <NumberField value={feePercent} onChange={setFeePercent} suffix="%" placeholder="0" className="narrow" />
             <span className="hint">What your broker charges on top of the rate.</span>
+            {feePercent !== null && feePercent < 0 && <span className="error-text">0 or more (or empty).</span>}
           </label>
         </div>
         {settingsDiffer && optionsValid && (
@@ -400,6 +412,16 @@ export function InvestPage() {
 
       {started && (usdIls === null || !(usdIls > 0)) && <MissingRate />}
       {started && missingPrices.length > 0 && <MissingPrices tickers={missingPrices} />}
+      {started && !amountsValid && (
+        <div className="banner warn" role="alert">
+          A category’s amount is below 0. Enter 0 or more to see what to buy.
+        </div>
+      )}
+      {started && amountsValid && !optionsValid && (
+        <div className="banner warn" role="alert">
+          Check the Options: the minimum order and the fee must be 0 or more, and max different stocks a whole number.
+        </div>
+      )}
 
       {!started && <p className="muted center">Enter an amount to see what to buy.</p>}
 
@@ -491,6 +513,7 @@ function SplitRow({
             The rest
           </button>
         </div>
+        {amount < 0 && <div className="error-text">0 or more.</div>}
       </td>
       {showCash && (
         <td className={`num hide-sm${category.cashIls < 0 && !isZeroMoney(category.cashIls) ? ' bad-text' : ''}`}>

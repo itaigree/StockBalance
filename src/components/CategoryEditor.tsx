@@ -11,21 +11,31 @@ const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** A percent with only the decimals it needs (2.5%, 3.33%, 10%). */
+function pct(n: number): string {
+  const r = round2(n);
+  const whole = (x: number) => Math.abs(x - Math.round(x)) < 1e-9;
+  return fmtPercent(r, whole(r) ? 0 : whole(r * 10) ? 1 : 2);
+}
+
 interface Row {
   key: string;
   ticker: string;
-  /** Target percent; not used for rows inside a group (the group's percent is split equally). */
+  /** Target percent; not used for stocks in an equally split group (the group's percent is split). */
   percent: number | null;
   shares: number | null;
   /** Key of the group this stock belongs to, if any. */
   group?: string;
 }
 
-/** A group of stocks sharing one target, e.g. "Corporates" 5% split equally over AMZN, TSLA… */
+/** A group of stocks sharing one target, e.g. "Corporates" 5% over AMZN, TSLA… */
 interface Group {
   key: string;
   name: string;
+  /** The group's target when it is split equally; otherwise it is the sum of its stocks' targets. */
   percent: number | null;
+  /** True: the target is split equally between its stocks; false: each stock has its own target. */
+  equal: boolean;
 }
 
 interface Props {
@@ -47,7 +57,7 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
     if (t.group) {
       let g = groups.find((x) => x.name === t.group);
       if (!g) {
-        g = { key: newId(), name: t.group, percent: 0 };
+        g = { key: newId(), name: t.group, percent: 0, equal: true };
         groups.push(g);
       }
       g.percent = Math.round(((g.percent ?? 0) + t.percent) * 1e6) / 1e6;
@@ -56,10 +66,16 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
     rows.push({
       key: newId(),
       ticker: t.ticker,
-      percent: t.group ? null : t.percent,
+      percent: Math.round(t.percent * 1e6) / 1e6,
       shares: category.holdings[t.ticker] ?? null,
       ...(groupKey ? { group: groupKey } : {}),
     });
+  }
+  // A group whose stocks have different targets is edited per stock; otherwise as one equal split.
+  for (const g of groups) {
+    const parts = rows.filter((r) => r.group === g.key).map((r) => r.percent ?? 0);
+    g.equal = parts.every((p) => Math.abs(p - parts[0]) < 1e-6);
+    if (g.equal) for (const r of rows) if (r.group === g.key) r.percent = null;
   }
   for (const ticker of Object.keys(category.holdings)
     .filter((t) => !rows.some((r) => r.ticker === t))
@@ -97,9 +113,14 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const single = rows.filter((r) => !r.group);
   const membersOf = (g: Group) => rows.filter((r) => r.group === g.key);
   const filledMembers = (g: Group) => membersOf(g).filter((r) => r.ticker.trim() !== '');
+  /** A group's target: its own percent when split equally, else the sum of its stocks' targets. */
+  const groupTarget = (g: Group) => (g.equal ? (g.percent ?? 0) : membersOf(g).reduce((s, r) => s + (r.percent ?? 0), 0));
+  const groupOfRow = (r: Row) => groups.find((g) => g.key === r.group);
+  /** True when the row has its own target field: a single stock, or a stock in a group with targets per stock. */
+  const ownTarget = (r: Row) => !r.group || groupOfRow(r)?.equal === false;
   const targetTotal =
-    filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) + groups.reduce((s, g) => s + (g.percent ?? 0), 0);
-  const hasTargets = filled.some((r) => !r.group && (r.percent ?? 0) > 0) || groups.some((g) => (g.percent ?? 0) > 0);
+    filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) + groups.reduce((s, g) => s + groupTarget(g), 0);
+  const hasTargets = filled.some((r) => !r.group && (r.percent ?? 0) > 0) || groups.some((g) => groupTarget(g) > 0);
 
   const errors = (() => {
     const e: {
@@ -129,8 +150,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       if (!t) e.rows[r.key] = 'Enter the ticker symbol.';
       else if (!TICKER_RE.test(t)) e.rows[r.key] = 'Use letters, digits, "." or "-" (e.g. VOO, BRK.B).';
       else if (seen.has(t)) e.rows[r.key] = `${t} is listed twice.`;
-      else if (!r.group && r.percent !== null && (r.percent < 0 || r.percent > 100))
+      else if (ownTarget(r) && r.percent !== null && (r.percent < 0 || r.percent > 100))
         e.rows[r.key] = 'Target must be between 0 and 100%.';
+      else if (r.group && ownTarget(r) && !((r.percent ?? 0) > 0)) e.rows[r.key] = 'Set this stock’s target (above 0%).';
       else if (r.shares !== null && r.shares < 0) e.rows[r.key] = "Shares can't be negative.";
       seen.add(t);
     }
@@ -139,7 +161,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       const n = g.name.trim().toLowerCase();
       if (!n) e.groups[g.key] = 'Give the group a name.';
       else if (groupNames.has(n)) e.groups[g.key] = 'Two groups have this name.';
-      else if (!(g.percent !== null && g.percent > 0 && g.percent <= 100)) e.groups[g.key] = 'Set the group’s target (above 0%).';
+      else if (g.equal && !(g.percent !== null && g.percent > 0 && g.percent <= 100))
+        e.groups[g.key] = 'Set the group’s target (above 0%).';
       else if (filledMembers(g).length === 0) e.groups[g.key] = 'Add at least one stock to the group.';
       groupNames.add(n);
     }
@@ -159,8 +182,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const scaleTo100 = () => {
     if (targetTotal <= 0) return;
     const items = [
-      ...rows.filter((r) => !r.group && (r.percent ?? 0) > 0).map((r) => ({ key: r.key, percent: r.percent! })),
-      ...groups.filter((g) => (g.percent ?? 0) > 0).map((g) => ({ key: g.key, percent: g.percent! })),
+      ...rows.filter((r) => ownTarget(r) && (r.percent ?? 0) > 0).map((r) => ({ key: r.key, percent: r.percent! })),
+      ...groups.filter((g) => g.equal && (g.percent ?? 0) > 0).map((g) => ({ key: g.key, percent: g.percent! })),
     ];
     let assigned = 0;
     const scaled = new Map<string, number>();
@@ -178,7 +201,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
 
   const addGroup = () => {
     const key = newId();
-    setGroups((gs) => [...gs, { key, name: '', percent: null }]);
+    setGroups((gs) => [...gs, { key, name: '', percent: null, equal: true }]);
     setRows((rs) => [...rs, { key: newId(), ticker: '', percent: null, shares: null, group: key }]);
   };
   const removeGroup = (key: string) => {
@@ -193,23 +216,43 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const moveRow = (r: Row, to: string | undefined) => {
     if (r.group === to) return;
     const from = groups.find((g) => g.key === r.group);
-    const share = from
-      ? r.ticker.trim() && (from.percent ?? 0) > 0
-        ? round2(from.percent! / Math.max(1, filledMembers(from).length))
-        : 0
-      : (r.percent ?? 0);
+    const dest = groups.find((g) => g.key === to);
+    const share =
+      from?.equal === true
+        ? r.ticker.trim() && (from.percent ?? 0) > 0
+          ? round2(from.percent! / Math.max(1, filledMembers(from).length))
+          : 0
+        : (r.percent ?? 0);
+    // An equally split group's own target changes; a group with targets per stock just sums them.
     if (share > 0) {
       setGroups((gs) =>
         gs.map((g) =>
-          g.key === from?.key
+          g.key === from?.key && g.equal
             ? { ...g, percent: round2((g.percent ?? 0) - share) }
-            : g.key === to
+            : g.key === to && g.equal
               ? { ...g, percent: round2((g.percent ?? 0) + share) }
               : g,
         ),
       );
     }
-    updateRow(r.key, { group: to, percent: to ? null : share > 0 ? share : null });
+    updateRow(r.key, { group: to, percent: dest?.equal ? null : share > 0 ? share : null });
+  };
+  /** Switch a group between an equal split and a target per stock, keeping its total. */
+  const setSplit = (g: Group, equal: boolean) => {
+    if (g.equal === equal) return;
+    if (equal) {
+      const total = round2(groupTarget(g));
+      setGroups((gs) => gs.map((x) => (x.key === g.key ? { ...x, equal, percent: total > 0 ? total : null } : x)));
+      setRows((rs) => rs.map((r) => (r.group === g.key ? { ...r, percent: null } : r)));
+      return;
+    }
+    // Start each stock at its equal part; rounding leftovers go to the last one.
+    const members = filledMembers(g);
+    const total = g.percent ?? 0;
+    const each = members.length > 0 ? round2(total / members.length) : 0;
+    const parts = new Map(members.map((r, i) => [r.key, i === members.length - 1 ? round2(total - each * i) : each]));
+    setGroups((gs) => gs.map((x) => (x.key === g.key ? { ...x, equal } : x)));
+    setRows((rs) => rs.map((r) => (parts.has(r.key) ? { ...r, percent: parts.get(r.key)! > 0 ? parts.get(r.key)! : null } : r)));
   };
 
   const save = () => {
@@ -236,7 +279,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           const members = filledMembers(g);
           return members.map((r) => ({
             ticker: normalizeTicker(r.ticker),
-            percent: g.percent! / members.length,
+            percent: g.equal ? g.percent! / members.length : r.percent!,
             group: g.name.trim(),
           }));
         }),
@@ -286,7 +329,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         {show(errors.rows[r.key])}
       </td>
       <td className="num">
-        {inGroup ? (
+        {!ownTarget(r) ? (
           <span className="muted small-text">in group</span>
         ) : (
           <NumberField
@@ -369,7 +412,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           <p className="hint">
             For each stock, set the share of this category it should be (target) and how many shares this category owns now. A
             stock with no target is kept but never bought. A group (e.g. "Corporates" 5% with AMZN, TSLA…) shares one target
-            equally between its stocks. To move a stock into or out of a group, choose it in the menu under the stock;
+            between its stocks — equally, or with your own % for each stock. To move a stock into or out of a group, choose it in the menu under the stock;
             its target moves with it.
           </p>
           <div className="table-wrap">
@@ -389,6 +432,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
                 {groups.map((g, gi) => {
                   const members = membersOf(g);
                   const each = (g.percent ?? 0) / Math.max(1, filledMembers(g).length);
+                  const total = groupTarget(g);
                   return (
                     <Fragment key={g.key}>
                       <tr className={`group-row${submitted && errors.groups[g.key] ? ' has-error' : ''}`}>
@@ -401,21 +445,34 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
                             aria-label={`Group name, group ${gi + 1}`}
                             onChange={(e) => updateGroup(g.key, { name: e.target.value })}
                           />
+                          <select
+                            className="group-split-select"
+                            value={g.equal ? 'equal' : 'own'}
+                            aria-label={`How group ${gi + 1} is split`}
+                            onChange={(e) => setSplit(g, e.target.value === 'equal')}
+                          >
+                            <option value="equal">Split equally</option>
+                            <option value="own">Own % per stock</option>
+                          </select>
                           {show(errors.groups[g.key])}
                         </td>
                         <td className="num">
-                          <NumberField
-                            className="narrow"
-                            value={g.percent}
-                            onChange={(v) => updateGroup(g.key, { percent: v })}
-                            suffix="%"
-                            aria-label={`Group target percent, group ${gi + 1}`}
-                          />
+                          {g.equal ? (
+                            <NumberField
+                              className="narrow"
+                              value={g.percent}
+                              onChange={(v) => updateGroup(g.key, { percent: v })}
+                              suffix="%"
+                              aria-label={`Group target percent, group ${gi + 1}`}
+                            />
+                          ) : (
+                            <span className="group-total" aria-label={`Group target, group ${gi + 1}`}>
+                              {pct(total)}
+                            </span>
+                          )}
                         </td>
                         <td className="muted small-text group-split">
-                          {filledMembers(g).length > 0 && (g.percent ?? 0) > 0
-                            ? `${fmtPercent(each, each % 1 === 0 ? 0 : 2)} each`
-                            : 'split equally'}
+                          {g.equal && filledMembers(g).length > 0 && (g.percent ?? 0) > 0 && `${pct(each)} each`}
                         </td>
                         <td>
                           <button
@@ -461,7 +518,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             </button>
             <span className="spacer" />
             <span className={hasTargets && Math.abs(targetTotal - 100) > 0.01 ? 'error-text' : 'muted'}>
-              Targets add up to {fmtPercent(targetTotal, targetTotal % 1 === 0 ? 0 : 2)}
+              Targets add up to {pct(targetTotal)}
             </span>
             {hasTargets && Math.abs(targetTotal - 100) > 0.01 && (
               <button type="button" className="secondary small" onClick={scaleTo100}>

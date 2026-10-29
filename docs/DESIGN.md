@@ -229,10 +229,14 @@ together. Shares are buys minus sells; non-USD rows are skipped.
 ## Stock groups
 
 A category's targets can include a group, e.g. "Corporates" 5% with AMZN and TSLA. It is stored as
-ordinary per-stock targets with a `group` label (AMZN 2.5% and TSLA 2.5%, both `group: "Corporates"`):
-the group's percent is split equally between its stocks. In the category editor a stock can be moved
-into a group, out of it, or to another group; its part of the targets moves with it (its own
-target, or its equal part of its group's, rounded to 0.01%), so the total doesn't change.
+ordinary per-stock targets with a `group` label (AMZN 2.5% and TSLA 2.5%, both `group: "Corporates"`),
+and the group's target is the sum of its stocks' targets. In the category editor a group is either
+split equally (the user sets the group's percent, divided equally between its stocks) or has its
+own % per stock (e.g. AMZN 3% + TSLA 2%; the group's target is shown as their sum). Switching to
+per-stock starts from the equal parts (rounding left on the last stock); switching back keeps the
+total. A group whose saved stock targets differ opens per-stock. A stock can be moved into a group,
+out of it, or to another group; its part of the targets moves with it (its own target, or its
+equal part of an equally split group's, rounded to 0.01%), so the total doesn't change.
 
 In the plan a group is balanced as one unit. Step 1 water-fills the category's single stocks and
 groups (a group's weight is its total target, its value that of all its stocks together); a group's

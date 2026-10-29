@@ -71,7 +71,13 @@ export function CategoriesPage() {
                         ) : (
                           <span key={`g:${t.name}`} className="target-chip group-chip">
                             <strong>{t.name}</strong> {fmtPercent(t.percent, t.percent % 1 === 0 ? 0 : 1)}{' '}
-                            <span className="muted">({t.tickers.join(', ')})</span>
+                            <span className="muted">
+                              (
+                              {t.equal
+                                ? t.tickers.join(', ')
+                                : t.tickers.map((tk, k) => `${tk} ${fmtPercent(t.parts[k], t.parts[k] % 1 === 0 ? 0 : 1)}`).join(', ')}
+                              )
+                            </span>
                           </span>
                         ),
                       )

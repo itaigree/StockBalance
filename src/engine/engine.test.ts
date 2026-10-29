@@ -386,6 +386,21 @@ describe('planPurchase', () => {
       expect(sharesOf(planPurchase(input([c], { VOO: 1, AMZN: 1, TSLA: 1 }, { p: 50 })), 'p')).toEqual({ TSLA: 50 });
     });
 
+    it('splits a group’s money by its stocks’ own targets when they differ', () => {
+      const c: Category = {
+        ...cat('p', {}, { VOO: 800 }),
+        targets: [
+          { ticker: 'VOO', percent: 80 },
+          { ticker: 'AMZN', percent: 15, group: 'Corp' },
+          { ticker: 'TSLA', percent: 5, group: 'Corp' },
+        ],
+      };
+      const buys = sharesOf(planPurchase(input([c], { VOO: 1, AMZN: 1, TSLA: 1 }, { p: 200 })), 'p');
+      expect(buys.AMZN).toBeCloseTo(150, 9);
+      expect(buys.TSLA).toBeCloseTo(50, 9);
+      expect(buys.VOO).toBeUndefined();
+    });
+
     it('gives an excluded stock’s share to the rest of its group, counting what it already holds', () => {
       const prices = { VOO: 1, AMZN: 1, TSLA: 1 };
       const plan = planPurchase(input([grouped({ VOO: 800, AMZN: 100 })], prices, { p: 100 }, { excludeTickers: ['TSLA'] }));

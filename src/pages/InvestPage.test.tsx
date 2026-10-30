@@ -651,4 +651,18 @@ describe('InvestPage', () => {
     expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
     expect(screen.queryByText(/Pension: the targets add up to/)).not.toBeInTheDocument();
   });
+
+  it('does not warn about a category with a group of thirds that the editor accepted at 99.99%', async () => {
+    const data = sample();
+    const targets = [
+      { ticker: 'VOO', percent: 60 },
+      { ticker: 'VXUS', percent: 29.99 },
+      ...['BND', 'QQQ', 'GLD'].map((ticker) => ({ ticker, percent: 3.333333333, group: 'Corp' })),
+    ];
+    data.categories[0] = { ...data.categories[0], targets };
+    const { user } = renderApp('invest', data);
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
+    expect(screen.queryByText(/Pension: the targets add up to/)).not.toBeInTheDocument();
+  });
 });

@@ -1071,6 +1071,24 @@ describe('category editor: group targets after a review of the fixes', () => {
     expect(within(box).getByText('Category targets add up to 90%')).toBeInTheDocument();
   });
 
+  it('gives a wrong (negative) group target back to the last stock taken out', async () => {
+    const { user } = renderApp('categories', sample());
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const dialog = screen.getByRole('dialog');
+    await setField(user, within(dialog).getByLabelText('Target percent, row 2'), '-5');
+    expect(within(dialog).getByText('Targets add up to 70%')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: '+ Add group' }));
+    const box = within(dialog).getByRole('group', { name: /^Group/ });
+    await user.type(within(box).getByLabelText('Group name, group 1'), 'Corp');
+    const list = within(box).getByRole('combobox', { name: "Move one of the category's stocks into the group" });
+    await user.selectOptions(list, 'VXUS');
+    await user.click(within(box).getByRole('button', { name: 'Move in' }));
+    await user.click(within(box).getByRole('button', { name: 'Take VXUS out of the group' }));
+    expect(within(dialog).getByText('Targets add up to 70%')).toBeInTheDocument();
+    const vxus = within(dialog).getByDisplayValue('VXUS').closest('tr')!;
+    expect(within(vxus).getByLabelText(/^Target percent/)).toHaveValue('-5');
+  });
+
   it('gives the last stock taken out of a group the whole group target', async () => {
     const { user } = renderApp(
       'categories',

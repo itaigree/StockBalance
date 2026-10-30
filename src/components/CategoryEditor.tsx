@@ -454,7 +454,12 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         .filter((x) => !(others.length === 0 && x.group === g.key && x.key !== r.key))
         .map((x) =>
           x.key === r.key
-            ? { ...withShare(x, null), group: undefined, percent: part > 0 ? part : null }
+            ? // The last stock gets the group's whole target, also a wrong (negative) one.
+              {
+                ...withShare(x, null),
+                group: undefined,
+                percent: others.length === 0 ? (g.percent ?? null) : part > 0 ? part : null,
+              }
             : shares.has(x.key)
               ? withShare(x, shares.get(x.key)!)
               : x,

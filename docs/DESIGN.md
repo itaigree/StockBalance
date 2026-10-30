@@ -190,13 +190,16 @@ the inputs come back and the plan is made again for the categories as they are. 
 recorded or undone since (e.g. in another tab), nothing is restored, and an open Invest page starts
 over, so the same money isn't planned and recorded twice. Plans saved by older versions (without
 these fingerprints) are restored when all their categories still exist.
-An empty fee means no fee; a negative amount, minimum order or fee stops planning with a message, and
-so does a number that can't be read ("0,5", "1000..") in the amount, a category's amount (unless it
-gets "the rest") or an option: it isn't read as empty, and a rate typed that way stays as typed. An
-amount of 0 plans with the cash carried over from earlier purchases (only an empty amount means
-"not started").
+An empty fee means no fee; a negative amount (the total or a category's), minimum order or fee
+stops planning with a message, and so does a number that can't be read ("0,5", "1000..") in the
+amount, a category's amount (unless it gets "the rest") or an option: it isn't read as empty, it
+stays as typed when the field is left, no plan is offered (not even a restored one), and the saved
+plan is kept while it is being corrected. An amount of 0 plans with the cash carried over from
+earlier purchases (only an empty amount means "not started"; the page suggests 0 only when some
+category has cash left).
 The record dialog records the plan as it was when "I made a purchase" was pressed, even if prices
-or the rate change while it is open; it closes when a purchase is recorded or undone elsewhere. The
+or the rate change while it is open; it closes when any purchase is recorded or undone elsewhere,
+and an added stock's price that can't be read isn't replaced by the market price. The
 "Purchase recorded" banner's Undo undoes the purchase this page recorded, and goes away once another
 purchase is the newest. Undoing warns about each stock a category now owns less of than the purchase
 gave it, adding up all the parts the purchase gave that category.
@@ -225,8 +228,9 @@ and anything else changed. *Later* hides it for 7 days. Deleting all data forget
 The fingerprint doesn't depend on the order of keys in the data (saved categories and reloaded
 ones list their fields in different orders). Open copies of the app follow each other's backups,
 and *Later* adds to the mark as stored now, so it never forgets a backup made in another copy.
-The "saved data couldn't be read" message goes away once the user restores a backup, loads the
-sample or deletes all data.
+Marks saved by earlier versions (whose fingerprint depended on key order) still count. The "saved
+data couldn't be read" message goes away once the user restores a backup, loads the sample or
+deletes all data, here or in another open copy.
 
 ## Prices and FX
 
@@ -272,7 +276,7 @@ applies to every ticker typed in the app and to saved data when it loads.
   user didn't change in the editor are taken as stored then (a purchase recorded in another copy
   of the app while the editor was open is kept), and saving is refused, with a message, when a
   number the user changed was also changed elsewhere or the category was deleted or merged
-  meanwhile.
+  meanwhile. A split moves only stocks the category still has.
 
 ## Stock groups
 
@@ -286,19 +290,24 @@ user sets the group's target in the category first, then how it is split between
 or as each stock's share of the group (e.g. AMZN 60% + TSLA 40%), which must add up to 100% (with a
 "Scale to 100%"). Saving writes each stock's target as the group's target × its share. A group whose
 saved stock targets differ opens with its own split: the shares are shown rounded to 0.01% (adding
-up to exactly 100%), but the exact share is kept while the one shown isn't changed, so opening and
-saving a category doesn't change its targets. Switching to an own split starts from the equal shares.
+up to exactly 100%), and the exact shares behind them count while none of them was retyped (once one
+is, the shares shown count, so the stocks' targets always add up to the group's). A group left as it
+was saved (same target, split and stocks) writes back its stocks' saved targets unchanged, so opening
+and saving a category never changes them. Switching to an own split starts from the equal shares.
 In the box another single stock of the category can be moved into the group (chosen in a list, then
 "Move in"), and a stock taken out of it; the targets move with it so the category's total doesn't
 change. Moving in raises the group's target by the stock's target and keeps every stock's part of the
 category, so an equal split becomes the group's own split when the parts differ (VXUS 25% and BND
-15% → 40%, split 62.5% / 37.5%); when the group has no target yet, or the stock has none, the
-others keep their shares and the stock's share is left to set. Taking out gives the stock its part
-of the group's target, rounded to 0.01%, and lowers the group's target by exactly that (the others'
-shares grow to fill the group again). A group left without stocks is removed, with any blank rows.
+15% → 40%, split 62.5% / 37.5%). A stock without a target joins an equal split as one more equal
+part; in an own split, or when the group has no target yet, the others keep their shares and the
+stock's share is left to set. Taking out gives the stock its part of the group's target, rounded to
+0.01%, and lowers the group's target by exactly that (the others' shares grow to fill the group
+again); the last stock taken out gets the group's whole target, and the group is removed with any
+blank rows.
 Scaling targets to 100% (single stocks and groups) and splitting into shares use largest-remainder
-rounding to 0.01%, so no target ends up below 0. A number that can't be read keeps its text, and
-blocks saving, also while the stock list and a group box take turns on screen; when saving is
+rounding to 0.01%, so no target ends up below 0. A number that can't be read (a stock's target,
+share or shares, or a group's target) keeps its text, and blocks saving, also while the stock list
+and a group box take turns on screen; when saving is
 refused because of something the open group box doesn't show, the box closes so it can be seen.
 
 In the plan a group is balanced as one unit. Step 1 water-fills the category's single stocks and

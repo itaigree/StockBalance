@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppData } from '../types';
 import { emptyData } from '../data/schema';
 import { saveData } from '../data/storage';
-import { sample, savedData } from '../test-utils';
+import { sample, saveFromOtherCopy, savedData } from '../test-utils';
 import { AppStateProvider, useApp, type AppContextValue } from './AppState';
 
 /** Answers Yahoo chart requests: 3.7 for the exchange rate, 100 for any stock. */
@@ -133,5 +133,14 @@ describe('a saved copy that could not be read', () => {
     expect(app.current!.loadError).toMatch(/couldn't be read/);
     act(() => app.current!.actions.startOver(sample()));
     expect(app.current!.loadError).toBeNull();
+  });
+
+  it('stops saying so once another copy saves data that can be read', () => {
+    window.localStorage.setItem('stockbalance:data', '{not json');
+    const app = renderProvider();
+    expect(app.current!.loadError).toMatch(/couldn't be read/);
+    saveFromOtherCopy(sample());
+    expect(app.current!.loadError).toBeNull();
+    expect(app.current!.data.categories).toHaveLength(3);
   });
 });

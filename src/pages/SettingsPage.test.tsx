@@ -6,7 +6,7 @@ import { AppStateProvider } from '../state/AppState';
 import { describe, expect, it, vi } from 'vitest';
 import { serializeBackup } from '../data/backup';
 import { YAHOO_CSV } from '../data/importCsv.fixture';
-import { renderApp, sample, savedData } from '../test-utils';
+import { renderApp, sample, saveFromOtherCopy, savedData } from '../test-utils';
 
 const download = vi.hoisted(() => vi.fn());
 vi.mock('../data/backup', async (importOriginal) => ({
@@ -157,6 +157,18 @@ describe('price forwarder', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('does not show a test result once the address changed in another copy', async () => {
+    const data = sample();
+    data.settings = { ...data.settings, yahooProxyUrl: 'https://good.example.workers.dev' };
+    const { user } = renderApp('settings', data);
+    await user.click(screen.getByRole('button', { name: 'Test' }));
+    expect(await screen.findByText(/Couldn't reach your price forwarder/)).toBeInTheDocument();
+    const other = sample();
+    other.settings = { ...other.settings, yahooProxyUrl: 'https://other.example.workers.dev' };
+    saveFromOtherCopy(other);
+    expect(screen.queryByText(/Couldn't reach your price forwarder/)).not.toBeInTheDocument();
   });
 
   it('saves the address and tests it', async () => {

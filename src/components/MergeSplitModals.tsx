@@ -146,6 +146,7 @@ export function SplitModal({
   const [cash, setCash] = useState<number | null>(0);
   const [copyTargets, setCopyTargets] = useState(true);
   const [percent, setPercent] = useState<number | null>(50);
+  const [splitError, setSplitError] = useState<string | null>(null);
   /** Fields whose text can't be read as a number (tickers, or "cash"). */
   const [unreadable, setUnreadable] = useState<Set<string>>(new Set());
   const trackReadable = (id: string) => (valid: boolean) =>
@@ -202,21 +203,26 @@ export function SplitModal({
             disabled={!valid}
             onClick={() => {
               const color = CATEGORY_COLORS.find((c) => !data.categories.some((x) => x.color === c)) ?? CATEGORY_COLORS[0];
-              const categories = splitCategory(data.categories, {
-                sourceId: category.id,
-                newCategory: {
-                  id: newId(),
-                  name: trimmed,
-                  color,
-                  targets: copyTargets ? category.targets : [],
-                  contribution: { kind: 'none' },
-                },
-                moveShares: Object.fromEntries(Object.entries(move).map(([t, n]) => [t, n ?? 0])),
-                moveCashIls: cash ?? 0,
-              });
-              actions.replaceData({ ...data, categories });
-              clearDraft();
-              onDone(`${trimmed} was split off from ${category.name}.`);
+              try {
+                const categories = splitCategory(data.categories, {
+                  sourceId: category.id,
+                  newCategory: {
+                    id: newId(),
+                    name: trimmed,
+                    color,
+                    targets: copyTargets ? category.targets : [],
+                    contribution: { kind: 'none' },
+                  },
+                  // Only stocks it still has (one may have gone in another window since it was typed).
+                  moveShares: Object.fromEntries(held.map(([t]) => [t, move[t] ?? 0])),
+                  moveCashIls: cash ?? 0,
+                });
+                actions.replaceData({ ...data, categories });
+                clearDraft();
+                onDone(`${trimmed} was split off from ${category.name}.`);
+              } catch (e) {
+                setSplitError(e instanceof Error ? e.message : String(e));
+              }
             }}
           >
             Split
@@ -228,6 +234,11 @@ export function SplitModal({
         {!now && (
           <div className="banner error" role="alert">
             {opened.name} was deleted or merged somewhere else, so it can't be split.
+          </div>
+        )}
+        {splitError && now && (
+          <div className="banner error" role="alert">
+            {splitError}
           </div>
         )}
         <label className="field">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Category, ContributionRule } from '../types';
 import { useApp } from '../state/AppState';
 import { apportion } from '../engine/apportion';
@@ -46,6 +46,8 @@ interface Group {
   percent: number | null;
   /** True: split equally between its stocks; false: each stock has its own share of the group. */
   equal: boolean;
+  /** The group as saved (its stocks' targets by row key), written back unchanged while it's left as it was. */
+  stored?: { percent: number; equal: boolean; targets: Record<string, number> };
 }
 
 interface Props {
@@ -92,6 +94,8 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
   if (!category) return { rows: [emptyRow()], groups: [] };
   const groups: Group[] = [];
   const rows: Row[] = [];
+  /** Each stock's target as saved, by row key (rows show it rounded). */
+  const saved = new Map<string, number>();
   for (const t of category.targets) {
     if (rows.some((r) => r.ticker === t.ticker)) continue;
     let groupKey: string | undefined;
@@ -104,8 +108,10 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
       g.percent = (g.percent ?? 0) + t.percent;
       groupKey = g.key;
     }
+    const key = newId();
+    saved.set(key, t.percent);
     rows.push({
-      key: newId(),
+      key,
       ticker: t.ticker,
       percent: Math.round(t.percent * 1e6) / 1e6,
       shares: category.holdings[t.ticker] ?? null,
@@ -118,13 +124,18 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
     // Rounded once, so three stocks of 3.333…% give back the 10% typed (not 9.999999%).
     g.percent = roundTarget(g.percent!);
     const members = rows.filter((r) => r.group === g.key);
-    const parts = members.map((r) => r.percent ?? 0);
+    const parts = members.map((r) => saved.get(r.key)!);
     g.equal = parts.every((p) => Math.abs(p - parts[0]) < 1e-6);
     const shares = g.equal ? [] : sharesFor(parts);
     members.forEach((r, i) => {
       r.percent = g.equal ? null : shares[i].shown;
       if (!g.equal) r.exact = shares[i];
     });
+    g.stored = {
+      percent: g.percent,
+      equal: g.equal,
+      targets: Object.fromEntries(members.map((r, i) => [r.key, parts[i]])),
+    };
   }
   for (const ticker of Object.keys(category.holdings)
     .filter((t) => !rows.some((r) => r.ticker === t))
@@ -161,6 +172,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   /** Why saving was refused although every field is fine (the category changed somewhere else). */
   const [conflict, setConflict] = useState<string | null>(null);
   const [moveChoice, setMoveChoice] = useState('');
+  const moveSelect = useRef<HTMLSelectElement>(null);
+  const boxAddStock = useRef<HTMLButtonElement>(null);
   /**
    * Number fields whose text can't be read ("rowKey:percent", "rowKey:shares"), with that text. It is
    * kept while the field is hidden (the stocks list and a group box take turns), so it comes back.
@@ -202,13 +215,24 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const single = rows.filter((r) => !r.group);
   const membersOf = (g: Group) => rows.filter((r) => r.group === g.key);
   const filledMembers = (g: Group) => membersOf(g).filter((r) => r.ticker.trim() !== '');
-  /** A stock's share of its group, % of the group (the exact one while the share shown is unchanged). */
+  /** True while every share of a group's own split is as computed, so the exact shares behind them count. */
+  const exactShares = (g: Group) => !g.equal && filledMembers(g).every((r) => r.exact && r.percent === r.exact.shown);
+  /** A stock's share of its group, % of the group (the shares shown once any of them was typed). */
   const shareOf = (g: Group, r: Row) =>
-    g.equal
-      ? 100 / Math.max(1, filledMembers(g).length)
-      : r.exact && r.percent === r.exact.shown
-        ? r.exact.share
-        : (r.percent ?? 0);
+    g.equal ? 100 / Math.max(1, filledMembers(g).length) : exactShares(g) && r.exact ? r.exact.share : (r.percent ?? 0);
+  /** True while a group is as it was saved: its stocks' saved targets are written back as they were. */
+  const untouched = (g: Group) => {
+    const s = g.stored;
+    const members = filledMembers(g);
+    return (
+      !!s &&
+      g.percent === s.percent &&
+      g.equal === s.equal &&
+      members.length === Object.keys(s.targets).length &&
+      members.every((r) => r.key in s.targets) &&
+      (g.equal || exactShares(g))
+    );
+  };
   const sharesTotal = (g: Group) => filledMembers(g).reduce((s, r) => s + (r.percent ?? 0), 0);
   const targetTotal =
     filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) +
@@ -258,6 +282,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       const n = g.name.trim().toLowerCase();
       if (!n) e.groups[g.key] = 'Give the group a name.';
       else if (groupNames.has(n)) e.groups[g.key] = 'Two groups have this name.';
+      else if (`${g.key}:target` in unreadable)
+        e.groups[g.key] = 'Enter the group’s target in numbers only (e.g. 2.5).';
       else if (!(g.percent !== null && g.percent > 0 && g.percent <= 100))
         e.groups[g.key] = 'Set the group’s target (above 0%).';
       else if (filledMembers(g).length === 0) e.groups[g.key] = 'Add at least one stock to the group.';
@@ -376,9 +402,10 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       }
       return;
     }
-    // Rounded to 0.01% once, and the group gives up exactly that, so the total doesn't change.
-    const part = round2(((g.percent ?? 0) * shareOf(g, r)) / 100);
     const others = filledMembers(g).filter((m) => m.key !== r.key);
+    // Rounded to 0.01% once, and the group gives up exactly that, so the total doesn't change (the
+    // last stock gets the whole target of the group, which goes away).
+    const part = others.length === 0 ? (g.percent ?? 0) : round2(((g.percent ?? 0) * shareOf(g, r)) / 100);
     const shares = new Map<string, { shown: number; share: number }>();
     if (!g.equal && others.length > 0) {
       const left = others.map((m) => shareOf(g, m));
@@ -485,7 +512,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         ...groups.flatMap((g) =>
           filledMembers(g).map((r) => ({
             ticker: normalizeTicker(r.ticker),
-            percent: Math.round(((g.percent! * shareOf(g, r)) / 100) * 1e9) / 1e9,
+            percent: untouched(g)
+              ? g.stored!.targets[r.key]
+              : Math.round(((g.percent! * shareOf(g, r)) / 100) * 1e9) / 1e9,
             group: g.name.trim(),
           })),
         ),
@@ -575,6 +604,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             onChange={(v) => updateGroup(g.key, { percent: v })}
             suffix="%"
             aria-label={`Group target percent, group ${gi + 1}`}
+            onValidityChange={trackReadable(`${g.key}:target`)}
+            initialText={unreadable[`${g.key}:target`]}
           />
         </td>
         <td>
@@ -632,6 +663,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
               onChange={(v) => updateGroup(g.key, { percent: v })}
               suffix="%"
               aria-label={`Group target percent, group ${gi + 1}`}
+              onValidityChange={trackReadable(`${g.key}:target`)}
+              initialText={unreadable[`${g.key}:target`]}
             />
           </label>
         </div>
@@ -701,7 +734,12 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           </table>
         </div>
         <div className="row">
-          <button type="button" className="secondary small" onClick={() => setRows((rs) => [...rs, emptyRow(g.key)])}>
+          <button
+            type="button"
+            className="secondary small"
+            ref={boxAddStock}
+            onClick={() => setRows((rs) => [...rs, emptyRow(g.key)])}
+          >
             + Add stock
           </button>
           {movable.length > 0 && (
@@ -709,6 +747,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             <span className="inline-form">
               <select
                 className="small-select"
+                ref={moveSelect}
                 value={movable.some((r) => r.key === moveChoice) ? moveChoice : ''}
                 aria-label="Move one of the category's stocks into the group"
                 onChange={(e) => setMoveChoice(e.target.value)}
@@ -729,6 +768,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
                   const r = movable.find((x) => x.key === moveChoice);
                   if (r) moveIn(g, r);
                   setMoveChoice('');
+                  // This button is now disabled: keep the keyboard in the box (the list, or the button
+                  // before it when no other stock is left to move).
+                  (movable.length > 1 ? moveSelect.current : boxAddStock.current)?.focus();
                 }}
               >
                 Move in
@@ -744,8 +786,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           )}
         </div>
         <p className="hint">
-          A stock moved in or taken out keeps its part of the category, so the targets still add up the same (an equal
-          split becomes your own split when their parts differ).
+          A stock moved in or taken out keeps its part of the category, so the targets still add up the same: an equal
+          split becomes your own split when the parts differ, and a stock without a target joins an equal split as one
+          more equal part.
         </p>
         <div className="row">
           <button type="button" className="small" onClick={() => setOpenGroup(null)}>

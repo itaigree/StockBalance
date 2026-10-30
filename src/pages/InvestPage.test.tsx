@@ -475,4 +475,90 @@ describe('InvestPage', () => {
     expect(kids.newMoneyIls).toBe(0);
     expect(kids.spentIls).toBeGreaterThan(0);
   });
+
+  describe('after a review of the fixes', () => {
+    it('keeps an unreadable category amount as typed when the field is left, and plans nothing', async () => {
+      const { user } = renderApp('invest', sample());
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      const kids = screen.getByLabelText('New money for Kids');
+      await user.clear(kids);
+      await user.type(kids, '1000..');
+      await user.tab();
+      expect(kids).toHaveValue('1000..');
+      expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/isn't assigned to any category/)).not.toBeInTheDocument();
+    });
+
+    it('does not plan with a negative amount, even with cash from before', async () => {
+      const data = sample();
+      data.categories[1] = { ...data.categories[1], cashIls: 5000 };
+      const { user } = renderApp('invest', data);
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '-500');
+      expect(screen.getByRole('alert')).toHaveTextContent('An amount is below 0.');
+      expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+    });
+
+    it('offers to invest the cash from before only when there is some', () => {
+      const data = sample();
+      data.categories = data.categories.map((c) => ({ ...c, cashIls: c.id === 'sample-kids' ? -300 : 0 }));
+      renderApp('invest', data);
+      expect(screen.getByText('Enter an amount to see what to buy.')).toBeInTheDocument();
+      expect(screen.queryByText(/To invest only the cash left/)).not.toBeInTheDocument();
+    });
+
+    it('closes the record dialog when an older purchase is undone in another copy', async () => {
+      const data = sample();
+      const tx = (id: string) => ({
+        id,
+        date: '2026-10-01T10:00:00.000Z',
+        usdIls: 3.7,
+        fxFeePercent: 0,
+        orders: [],
+        allocations: [],
+        cash: [],
+      });
+      data.transactions = [tx('p1'), tx('p2')];
+      const { user } = renderApp('invest', data);
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '5000');
+      await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+      const undone = sample();
+      undone.transactions = [tx('p2')];
+      saveFromOtherCopy(undone);
+      expect(screen.queryByRole('dialog', { name: 'Record the purchase' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the saved plan while an unreadable amount is being corrected', async () => {
+      const { user } = renderApp('invest', sample());
+      const amount = screen.getByLabelText('Amount to invest in ILS');
+      await user.type(amount, '10000');
+      expect(window.localStorage.getItem('stockbalance:invest-draft')).not.toBeNull();
+      await user.type(amount, ',5');
+      expect(window.localStorage.getItem('stockbalance:invest-draft')).not.toBeNull();
+    });
+
+    it('offers no restored plan while an option cannot be read', async () => {
+      const first = renderApp('invest', sample());
+      await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      first.unmount();
+      const { user } = renderApp('invest', sample());
+      expect(screen.getByText(/This is the plan you made/)).toBeInTheDocument();
+      await user.type(screen.getByLabelText(/Max different stocks/), 'two');
+      expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+    });
+
+    it('does not replace an unreadable price of an added stock with the market price', async () => {
+      const { user } = renderApp('invest', sample());
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+      const dialog = screen.getByRole('dialog', { name: 'Record the purchase' });
+      await user.click(within(dialog).getByLabelText('I bought something different'));
+      await user.click(within(dialog).getByRole('button', { name: '+ Add a stock I bought instead' }));
+      await user.type(within(dialog).getByLabelText('Added stock 1'), 'voo');
+      await user.type(within(dialog).getByLabelText('Shares of added stock 1'), '1');
+      await user.type(within(dialog).getByLabelText('Price of added stock 1'), '500,5');
+      expect(within(dialog).getByText('Enter the price in numbers only (e.g. 27.50).')).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Record purchase' }));
+      expect(savedData().transactions).toHaveLength(0);
+    });
+  });
 });

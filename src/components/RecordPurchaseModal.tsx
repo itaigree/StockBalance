@@ -47,15 +47,26 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
   const [date, setDate] = useState(todayLocal());
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** Added stocks whose typed price can't be read (not replaced by the market price meanwhile). */
+  const [unreadablePrice, setUnreadablePrice] = useState<Set<string>>(new Set());
+  const trackPrice = (key: string) => (valid: boolean) =>
+    setUnreadablePrice((s) => {
+      if (valid !== s.has(key)) return s;
+      const next = new Set(s);
+      if (valid) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const exact = mode === 'exact';
   const knownPrice = (t: string) => data.prices[normalizeTicker(t)]?.priceUsd ?? null;
-  const extraPrice = (x: ExtraRow) => x.price ?? knownPrice(x.ticker);
+  const extraPrice = (x: ExtraRow) => (unreadablePrice.has(x.key) ? null : (x.price ?? knownPrice(x.ticker)));
   const extraError = (x: ExtraRow): string | null => {
     const t = normalizeTicker(x.ticker);
     if (!t) return 'Enter the ticker.';
     if (!isTicker(t)) return 'Use letters, digits, "." or "-".';
     if (!(x.shares !== null && x.shares > 0)) return 'Enter the shares bought.';
+    if (unreadablePrice.has(x.key)) return 'Enter the price in numbers only (e.g. 27.50).';
     const p = extraPrice(x);
     if (!(p !== null && p > 0)) return 'Enter the price paid.';
     if (!data.categories.some((c) => c.id === x.categoryId)) return 'Choose the category.';
@@ -274,6 +285,7 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
                               placeholder={known !== null ? String(known) : ''}
                               aria-label={`Price of added stock ${i + 1}`}
                               onChange={(v) => updateExtra(x.key, { price: v })}
+                              onValidityChange={trackPrice(x.key)}
                             />
                           </td>
                           <td>

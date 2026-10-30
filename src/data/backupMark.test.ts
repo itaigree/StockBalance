@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AppData } from '../types';
 import { backupReminder, dataSignature, loadBackupMark, markBackedUp, snoozeBackupReminder } from './backupMark';
 import { emptyData } from './schema';
+import { fingerprint } from '../lib/fingerprint';
 import { sampleData } from './sample';
 
 /** A Storage backed by a Map. */
@@ -87,6 +88,16 @@ describe('backup reminder', () => {
     };
     expect(dataSignature(reordered)).toBe(dataSignature(data));
     expect(dataSignature({ ...data, categories: data.categories.slice(1) })).not.toBe(dataSignature(data));
+  });
+
+  it('still recognises a backup marked by the previous version (key-order signature)', () => {
+    const data = sampleData(t0);
+    const legacy = {
+      at: t0.toISOString(),
+      signature: fingerprint(JSON.stringify([data.categories, data.transactions, data.settings])),
+      purchases: fingerprint(JSON.stringify(data.transactions.map((t) => t.id))),
+    };
+    expect(backupReminder(data, legacy, later(40))).toBeNull();
   });
 
   it('ignores a broken saved mark', () => {

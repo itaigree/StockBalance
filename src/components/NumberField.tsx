@@ -73,6 +73,8 @@ export function NumberField({
           setText(e.target.value);
           const n = parseNumber(e.target.value);
           lastEmitted.current = n;
+          // Told together with the value, so the form never sees one without the other.
+          onValidityRef.current?.(e.target.value.trim() === '' || n !== null, e.target.value);
           onChange(n);
         }}
         onFocus={(e) => {

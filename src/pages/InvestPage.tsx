@@ -62,12 +62,13 @@ export function InvestPage() {
   const [undoing, setUndoing] = useState(false);
   const recordedTx = recorded ? data.transactions.find((t) => t.id === recorded.txId) : undefined;
 
-  // A purchase recorded or undone elsewhere (e.g. in another tab) while this page is open: start
-  // over, so the same money isn't planned — and recorded — twice.
-  const seenTxId = useRef(latestTxId);
+  // A purchase recorded or undone elsewhere (e.g. in another tab, also an older one) while this page
+  // is open: start over, so the same money isn't planned — and recorded — twice.
+  const txKey = data.transactions.map((t) => t.id).join('\u0000');
+  const seenTxKey = useRef(txKey);
   useEffect(() => {
-    if (seenTxId.current === latestTxId) return;
-    seenTxId.current = latestTxId;
+    if (seenTxKey.current === txKey) return;
+    seenTxKey.current = txKey;
     setFrozen(null);
     setTotal(null);
     setOverrides({});
@@ -80,8 +81,8 @@ export function InvestPage() {
       setRecorded(null);
       setUndoing(false);
     }
-    // Only a change of the newest purchase matters here.
-  }, [latestTxId]);
+    // Only a change in the purchases matters here.
+  }, [txKey]);
   /**
    * Number fields whose text can't be read ("total", "amount:<category id>", "minOrder", "maxTickers",
    * "rate", "fee"): nothing is planned until they're fixed, instead of reading them as empty.
@@ -166,7 +167,8 @@ export function InvestPage() {
     (minOrder === null || minOrder >= 0) &&
     (maxTickers === null || (Number.isInteger(maxTickers) && maxTickers >= 1)) &&
     (feePercent === null || feePercent >= 0);
-  const amountsValid = !unreadableAmount && Object.values(overrides).every((v) => v === null || v >= 0);
+  const negativeAmount = (total ?? 0) < 0 || Object.values(overrides).some((v) => v !== null && v < 0);
+  const amountsValid = !unreadableAmount && !negativeAmount;
 
   const prices = useMemo(() => priceMap(data.prices), [data.prices]);
   // Planning takes a few milliseconds, so it simply runs on every change.
@@ -185,11 +187,14 @@ export function InvestPage() {
     started && usdIls !== null && usdIls > 0 && optionsValid && amountsValid && missingPrices.length === 0
       ? planPurchase({ categories, prices, usdIls, fxFeePercent: feePercent ?? 0, budgetsIls: budgets, options })
       : null;
+  // No plan (not even the restored one) while a number can't be read.
   const shown: SavedPlan | null =
-    frozen ??
-    (livePlan && usdIls !== null
-      ? { savedAt: '', plan: livePlan, newMoneyIls: newMoney, usdIls, fxFeePercent: feePercent ?? 0 }
-      : null);
+    unreadableShown.length > 0
+      ? null
+      : (frozen ??
+        (livePlan && usdIls !== null
+          ? { savedAt: '', plan: livePlan, newMoneyIls: newMoney, usdIls, fxFeePercent: feePercent ?? 0 }
+          : null));
   const plan = shown?.plan ?? null;
 
   // Keep the latest plan so it survives a reload; forget it once there is nothing to plan. While an
@@ -199,7 +204,8 @@ export function InvestPage() {
   useEffect(() => {
     if (frozen) return;
     if (!started) {
-      clearDraft();
+      // Only an empty amount forgets it; one being corrected (unreadable or below 0) doesn't.
+      if (!unreadable.has('total') && !((total ?? 0) < 0)) clearDraft();
       return;
     }
     if (!inputsOk) return;
@@ -212,7 +218,7 @@ export function InvestPage() {
       saved: { ...shown, savedAt: new Date().toISOString(), categoriesKey: catsKey, lastTxId: latestTxId },
     });
     // `inputs`, `shown`, the categories and the purchases are fully described by these keys.
-  }, [frozen, started, inputsOk, inputsKey, planKey, latestTxId]);
+  }, [frozen, started, inputsOk, inputsKey, planKey, latestTxId, unreadable]);
 
   const afterRecording = (kind: 'purchase' | 'cash', txId: string) => {
     setRecording(null);
@@ -402,7 +408,7 @@ export function InvestPage() {
             ))}
           </div>
         )}
-        {edited && total !== null && Math.abs(sumNew - total) >= 0.01 && (
+        {edited && total !== null && !unreadableAmount && Math.abs(sumNew - total) >= 0.01 && (
           <div className="banner warn">
             {sumNew < total
               ? `${fmtIls(total - sumNew)} of the ${fmtIls(total)} isn't assigned to any category.`
@@ -519,9 +525,9 @@ export function InvestPage() {
         </div>
       ) : (
         <>
-          {started && !amountsValid && (
+          {negativeAmount && (
             <div className="banner warn" role="alert">
-              A category’s amount is below 0. Enter 0 or more to see what to buy.
+              An amount is below 0. Enter 0 or more to see what to buy.
             </div>
           )}
           {started && amountsValid && !optionsValid && (
@@ -532,10 +538,10 @@ export function InvestPage() {
         </>
       )}
 
-      {!started && !unreadableAmount && (
+      {!started && !unreadableAmount && !negativeAmount && (
         <>
           <p className="muted center">Enter an amount to see what to buy.</p>
-          {hasCash && useCash && (
+          {useCash && categories.some((c) => c.cashIls > 0 && !isZeroMoney(c.cashIls)) && (
             <p className="muted center small-text">To invest only the cash left from earlier purchases, enter 0.</p>
           )}
         </>
@@ -621,7 +627,8 @@ function SplitRow({
             </span>
           ) : (
             <NumberField
-              value={amount}
+              // While the typed amount can't be read it stays as typed (not replaced by the 0 it counts as).
+              value={unreadable ? null : amount}
               onChange={onChange}
               prefix="₪"
               aria-label={`New money for ${category.name}`}

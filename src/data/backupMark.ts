@@ -31,6 +31,11 @@ export function dataSignature(data: AppData): string {
   return fingerprint(canonicalJson([data.categories, data.transactions, data.settings]));
 }
 
+/** The signature marks saved by earlier versions hold (it depended on the order of keys). */
+function legacySignature(data: AppData): string {
+  return fingerprint(JSON.stringify([data.categories, data.transactions, data.settings]));
+}
+
 /** JSON with object keys sorted (and undefined values left out), so equal data gives equal text. */
 function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, v: unknown) =>
@@ -110,7 +115,7 @@ export function backupReminder(data: AppData, mark: BackupMark, now: Date = new 
   if (data.categories.length === 0) return null;
   if (mark.snoozedUntil && new Date(mark.snoozedUntil).getTime() > now.getTime()) return null;
   if (!mark.at) return 'never';
-  if (mark.signature === dataSignature(data)) return null;
+  if (mark.signature === dataSignature(data) || mark.signature === legacySignature(data)) return null;
   const purchasesChanged =
     mark.purchases !== undefined
       ? mark.purchases !== purchasesSignature(data)

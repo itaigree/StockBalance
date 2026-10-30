@@ -154,6 +154,8 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
       const parsed = parseAppData(json);
       if (!parsed.ok) return;
       fromStorage.current = parsed.data;
+      // What is saved can be read now (e.g. a backup restored in the other copy).
+      setLoadError(null);
       dispatch({ type: 'replace', data: parsed.data });
     };
     window.addEventListener('storage', onStorage);

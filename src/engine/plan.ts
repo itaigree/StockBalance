@@ -1,6 +1,6 @@
 import type { Category } from '../types';
 import { fmtIls, fmtPercent } from '../lib/format';
-import { mergedTargets, validPrice } from './targets';
+import { mergedTargets, offBy001, validPrice } from './targets';
 import type { CategoryPlan, PlanInput, PlanOptions, PlanResult, PlannedBuy, PlannedOrder } from './types';
 import { valueCategory } from './valuation';
 import { fillLargestGapFirst, waterfill } from './waterfill';
@@ -71,8 +71,8 @@ export function planPurchase(input: PlanInput): PlanResult {
     const sum = targets.reduce((a, t) => a + t.percent, 0);
     if (targets.length === 0) {
       warnings.push(`${c.name} has no target stocks, so its ${fmtIls(budgetsIlsList[i])} stays as cash.`);
-    } else if (Math.abs(sum - 100) > 0.01) {
-      warnings.push(`${c.name}: the targets add up to ${fmtPercent(sum)}, so they were scaled to 100%.`);
+    } else if (offBy001(sum, 100)) {
+      warnings.push(`${c.name}: the targets add up to ${fmtPercent(sum, 2)}, so they were scaled to 100%.`);
     }
   });
 

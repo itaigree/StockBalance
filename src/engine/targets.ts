@@ -20,9 +20,17 @@ export function targetSum(category: Pick<Category, 'targets'>): number {
   return mergedTargets(category).reduce((a, t) => a + t.percent, 0);
 }
 
+/**
+ * True when a total is more than 0.01 away from what it should be, as typed: 99.99 and 100.01 are
+ * within it, whatever the float sum gives. The category editor and the planner use the same rule.
+ */
+export function offBy001(total: number, expected: number): boolean {
+  return Math.abs(total - expected) > 0.01 + 1e-9;
+}
+
 /** True when the targets add up to 100% (±0.01). */
 export function targetsAddUp(category: Pick<Category, 'targets'>): boolean {
-  return Math.abs(targetSum(category) - 100) <= 0.01;
+  return !offBy001(targetSum(category), 100);
 }
 
 /** A valid price (finite and > 0) or null. */

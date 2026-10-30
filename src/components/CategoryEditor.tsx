@@ -2,16 +2,15 @@ import { useRef, useState } from 'react';
 import type { Category, ContributionRule } from '../types';
 import { useApp } from '../state/AppState';
 import { apportion } from '../engine/apportion';
+import { offBy001 } from '../engine/targets';
 import { CATEGORY_COLORS, newId } from '../lib/ids';
-import { fmtPercent, isTicker, normalizeTicker } from '../lib/format';
+import { fmtPercent, isTicker, normalizeTicker, parseNumber } from '../lib/format';
 import { RULE_EXPLANATION } from '../lib/rules';
 import { Modal } from './Modal';
 import { NumberField } from './NumberField';
 import './CategoryEditor.css';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-/** More than 0.01 apart, as typed (99.99 and 100.01 are within, whatever the float sum gives). */
-const offBy = (total: number, target: number) => Math.abs(total - target) > 0.01 + 1e-9;
 /** Targets are kept to a millionth of a percent, so adding and subtracting them leaves no float noise. */
 const roundTarget = (n: number) => Math.round(n * 1e6) / 1e6;
 
@@ -258,7 +257,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) +
     groups.reduce((s, g) => s + (g.percent ?? 0), 0);
   const hasTargets = filled.some((r) => !r.group && (r.percent ?? 0) > 0) || groups.some((g) => (g.percent ?? 0) > 0);
-  const totalOff = hasTargets && offBy(targetTotal, 100);
+  const totalOff = hasTargets && offBy001(targetTotal, 100);
 
   const errors = (() => {
     const e: {
@@ -307,7 +306,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       else if (g.percent !== null && g.percent > 100) e.groups[g.key] = 'A group’s target can’t be above 100%.';
       else if (!(g.percent !== null && g.percent > 0)) e.groups[g.key] = 'Set the group’s target (above 0%).';
       else if (filledMembers(g).length === 0) e.groups[g.key] = 'Add at least one stock to the group.';
-      else if (!g.equal && offBy(sharesTotal(g), 100))
+      else if (!g.equal && offBy001(sharesTotal(g), 100))
         e.groups[g.key] = `The stocks’ shares add up to ${pct(sharesTotal(g))}; they must add up to 100% of the group.`;
       else if (membersOf(g).some((r) => e.rows[r.key])) e.groups[g.key] = 'Fix the stocks in this group.';
       groupNames.add(n);
@@ -415,7 +414,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             ),
         ),
     );
-    updateGroup(g.key, { equal, ...(t > 0 ? { percent: roundTarget(before + t) } : {}) });
+    // Any target comes along, also one that is wrong (below 0): the group then shows it, rather than
+    // the category's total changing.
+    updateGroup(g.key, { equal, ...(t !== 0 ? { percent: roundTarget(before + t) } : {}) });
   };
   /**
    * Take a stock out of its group: it becomes a single stock with its part of the group's target, the
@@ -672,8 +673,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     const gi = groups.indexOf(g);
     const members = membersOf(g);
     const total = sharesTotal(g);
-    const off = !g.equal && offBy(total, 100);
-    const movable = single.filter((r) => r.ticker.trim() !== '');
+    const off = !g.equal && offBy001(total, 100);
+    // A stock whose target can't be read isn't offered until it can (its target would be lost).
+    const movable = single.filter((r) => r.ticker.trim() !== '' && !(`${r.key}:percent` in unreadable));
     return (
       <div className="group-box" role="group" aria-label={`Group ${g.name.trim() || gi + 1}`}>
         <button type="button" className="link-button back-to-stocks" onClick={() => setOpenGroup(null)}>
@@ -750,6 +752,11 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
                           className="narrow"
                           value={r.percent}
                           onChange={(v) => setShare(r, v)}
+                          // Also when 0 is typed over the 0 shown (no change, so no onChange).
+                          onInput={(e) => {
+                            const v = parseNumber(e.currentTarget.value);
+                            if (!(v !== null && v > 0)) setShare(r, v);
+                          }}
                           suffix="%"
                           aria-label={`Share of the group, row ${i + 1}`}
                           onValidityChange={trackReadable(`${r.key}:percent`)}

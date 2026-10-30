@@ -461,7 +461,7 @@ describe('planPurchase', () => {
   it('warns about a category without targets and targets that do not add up', () => {
     const plan = planPurchase(input([cat('a', {}), cat('b', { B: 50 })], { B: 10 }, { a: 100, b: 100 }));
     expect(plan.warnings.join(' ')).toMatch(/a has no target stocks/);
-    expect(plan.warnings.join(' ')).toMatch(/b: the targets add up to 50.0%/);
+    expect(plan.warnings.join(' ')).toMatch(/b: the targets add up to 50.00%/);
     expect(plan.categories[0].leftoverIls).toBe(100);
   });
 });

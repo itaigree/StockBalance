@@ -637,4 +637,18 @@ describe('InvestPage', () => {
     expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
   });
+
+  it('does not warn about targets the category editor accepts as adding up to 100%', async () => {
+    const data = sample();
+    const targets = [
+      { ticker: 'VOO', percent: 60 },
+      { ticker: 'VXUS', percent: 25 },
+      { ticker: 'BND', percent: 14.99 },
+    ];
+    data.categories[0] = { ...data.categories[0], targets };
+    const { user } = renderApp('invest', data);
+    await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
+    expect(screen.queryByText(/Pension: the targets add up to/)).not.toBeInTheDocument();
+  });
 });

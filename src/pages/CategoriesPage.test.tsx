@@ -1032,6 +1032,45 @@ describe('category editor: group targets after a review of the fixes', () => {
     expect(within(dialog).getByText('Targets add up to 100%')).toBeInTheDocument();
   });
 
+  it('asks for a share when 0 is typed over the selected 0 shown', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 90 },
+        { ticker: 'AMZN', percent: 9.9999, group: 'Corp' },
+        { ticker: 'TINY', percent: 0.0001, group: 'Corp' },
+      ]),
+    );
+    const { dialog, box } = await openGroup(user, 'Corp');
+    const tiny = within(box).getAllByLabelText(/^Share of the group/)[1];
+    await user.tripleClick(tiny);
+    await user.keyboard('0');
+    expect(tiny).toHaveValue('0');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(within(box).getByText('Set this stock’s share of the group (above 0%).')).toBeInTheDocument();
+  });
+
+  it('keeps a wrong (negative) target when the stock is moved into a group, so the total does not change', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 85 },
+        { ticker: 'VXUS', percent: 5 },
+        { ticker: 'AMZN', percent: 10, group: 'Corp' },
+      ]),
+    );
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const dialog = screen.getByRole('dialog');
+    await setField(user, within(dialog).getByLabelText('Target percent, row 2'), '-5');
+    expect(within(dialog).getByText('Targets add up to 90%')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Edit group Corp' }));
+    const box = within(dialog).getByRole('group', { name: 'Group Corp' });
+    const list = within(box).getByRole('combobox', { name: "Move one of the category's stocks into the group" });
+    await user.selectOptions(list, 'VXUS');
+    await user.click(within(box).getByRole('button', { name: 'Move in' }));
+    expect(within(box).getByText('Category targets add up to 90%')).toBeInTheDocument();
+  });
+
   it('gives the last stock taken out of a group the whole group target', async () => {
     const { user } = renderApp(
       'categories',

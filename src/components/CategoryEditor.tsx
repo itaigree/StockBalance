@@ -10,6 +10,8 @@ import { NumberField } from './NumberField';
 import './CategoryEditor.css';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** More than 0.01 apart, as typed (99.99 and 100.01 are within, whatever the float sum gives). */
+const offBy = (total: number, target: number) => Math.abs(total - target) > 0.01 + 1e-9;
 /** Targets are kept to a millionth of a percent, so adding and subtracting them leaves no float noise. */
 const roundTarget = (n: number) => Math.round(n * 1e6) / 1e6;
 
@@ -212,6 +214,16 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
 
   const updateRow = (key: string, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  /** A share of the group typed by the user; one of 0 (or none) has no exact share behind it either. */
+  const setShare = (r: Row, v: number | null) =>
+    setRows((rs) =>
+      rs.map((x) => {
+        if (x.key !== r.key) return x;
+        const next = { ...x, percent: v };
+        if (!(v !== null && v > 0)) delete next.exact;
+        return next;
+      }),
+    );
   const updateGroup = (key: string, patch: Partial<Group>) =>
     setGroups((gs) => gs.map((g) => (g.key === key ? { ...g, ...patch } : g)));
   const filled = rows.filter(
@@ -246,7 +258,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) +
     groups.reduce((s, g) => s + (g.percent ?? 0), 0);
   const hasTargets = filled.some((r) => !r.group && (r.percent ?? 0) > 0) || groups.some((g) => (g.percent ?? 0) > 0);
-  const totalOff = hasTargets && Math.abs(targetTotal - 100) > 0.01;
+  const totalOff = hasTargets && offBy(targetTotal, 100);
 
   const errors = (() => {
     const e: {
@@ -295,7 +307,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       else if (g.percent !== null && g.percent > 100) e.groups[g.key] = 'A group’s target can’t be above 100%.';
       else if (!(g.percent !== null && g.percent > 0)) e.groups[g.key] = 'Set the group’s target (above 0%).';
       else if (filledMembers(g).length === 0) e.groups[g.key] = 'Add at least one stock to the group.';
-      else if (!g.equal && Math.abs(sharesTotal(g) - 100) > 0.01)
+      else if (!g.equal && offBy(sharesTotal(g), 100))
         e.groups[g.key] = `The stocks’ shares add up to ${pct(sharesTotal(g))}; they must add up to 100% of the group.`;
       else if (membersOf(g).some((r) => e.rows[r.key])) e.groups[g.key] = 'Fix the stocks in this group.';
       groupNames.add(n);
@@ -419,7 +431,11 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     const others = filledMembers(g).filter((m) => m.key !== r.key);
     // Rounded to 0.01% once, and the group gives up exactly that, so the total doesn't change (the
     // last stock gets the whole target of the group, which goes away).
-    const part = others.length === 0 ? (g.percent ?? 0) : round2(((g.percent ?? 0) * shareOf(g, r)) / 100);
+    // (Never more than the group's target, even for a share typed above 100%.)
+    const part =
+      others.length === 0
+        ? (g.percent ?? 0)
+        : Math.min(g.percent ?? 0, round2(((g.percent ?? 0) * shareOf(g, r)) / 100));
     const shares = new Map<string, { shown: number; share: number }>();
     // The others' shares: the exact ones while all of theirs are as computed, else the ones shown.
     const othersExact = others.every((m) => m.exact && m.percent === m.exact.shown);
@@ -656,7 +672,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     const gi = groups.indexOf(g);
     const members = membersOf(g);
     const total = sharesTotal(g);
-    const off = !g.equal && Math.abs(total - 100) > 0.01;
+    const off = !g.equal && offBy(total, 100);
     const movable = single.filter((r) => r.ticker.trim() !== '');
     return (
       <div className="group-box" role="group" aria-label={`Group ${g.name.trim() || gi + 1}`}>
@@ -733,7 +749,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
                         <NumberField
                           className="narrow"
                           value={r.percent}
-                          onChange={(v) => updateRow(r.key, { percent: v })}
+                          onChange={(v) => setShare(r, v)}
                           suffix="%"
                           aria-label={`Share of the group, row ${i + 1}`}
                           onValidityChange={trackReadable(`${r.key}:percent`)}

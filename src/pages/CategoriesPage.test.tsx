@@ -971,6 +971,67 @@ describe('category editor: group targets after a review of the fixes', () => {
     expect(savedData().categories[0].targets).toEqual(targets);
   });
 
+  it('asks for a share when 0 is typed over a share shown as 0%', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 90 },
+        { ticker: 'AMZN', percent: 9.9999, group: 'Corp' },
+        { ticker: 'TINY', percent: 0.0001, group: 'Corp' },
+      ]),
+    );
+    const { dialog, box } = await openGroup(user, 'Corp');
+    const tiny = within(box).getAllByLabelText(/^Share of the group/)[1];
+    expect(tiny).toHaveValue('0');
+    await setField(user, tiny, '0');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(within(box).getByText('Set this stock’s share of the group (above 0%).')).toBeInTheDocument();
+  });
+
+  it('treats shares adding up to 99.99% or 100.01% the same, whatever the digits', async () => {
+    for (const typed of [
+      ['59.99', '40'],
+      ['70', '29.99'],
+      ['70.01', '30'],
+    ]) {
+      const r = renderApp(
+        'categories',
+        withTargets([
+          { ticker: 'VOO', percent: 90 },
+          { ticker: 'AMZN', percent: 6, group: 'Corp' },
+          { ticker: 'TSLA', percent: 4, group: 'Corp' },
+        ]),
+      );
+      const { dialog, box } = await openGroup(r.user, 'Corp');
+      const fields = within(box).getAllByLabelText(/^Share of the group/);
+      await setField(r.user, fields[0], typed[0]);
+      await setField(r.user, fields[1], typed[1]);
+      expect(within(box).queryByRole('button', { name: 'Scale to 100%' })).not.toBeInTheDocument();
+      await r.user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(groupSum('Corp')).toBeCloseTo(10, 6);
+      r.unmount();
+    }
+  });
+
+  it('never makes a group target negative when a share typed above 100% is taken out', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 90 },
+        { ticker: 'AMZN', percent: 6, group: 'Corp' },
+        { ticker: 'TSLA', percent: 4, group: 'Corp' },
+      ]),
+    );
+    const { dialog, box } = await openGroup(user, 'Corp');
+    await setField(user, within(box).getAllByLabelText(/^Share of the group/)[0], '160');
+    await user.click(within(box).getByRole('button', { name: 'Take AMZN out of the group' }));
+    expect(within(box).getByLabelText('Group target percent, group 1')).toHaveValue('0');
+    await user.click(within(box).getByRole('button', { name: 'Done' }));
+    expect(within(dialog).getByLabelText('Target percent, row 2')).toHaveValue('10');
+    expect(within(dialog).getByText('Targets add up to 100%')).toBeInTheDocument();
+  });
+
   it('gives the last stock taken out of a group the whole group target', async () => {
     const { user } = renderApp(
       'categories',

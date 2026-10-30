@@ -183,7 +183,8 @@ orders: the new money is added to each category's cash and is included next time
 The plan shown on the Invest page is saved in the browser (with its inputs, and a fingerprint of
 what it depends on in the categories: ids, targets, money rules, holdings and cash) until it is
 recorded or the inputs are cleared. It is saved again whenever anything in it changes, including the
-exchange rate. After a reload — which also refreshes prices — that saved plan is shown and recorded
+exchange rate. It also keeps a fingerprint of all the purchases, so a purchase recorded or undone
+since (also an older one) means nothing is restored. After a reload — which also refreshes prices — that saved plan is shown and recorded
 as it was, instead of a recalculation with new prices; the user can choose to recalculate. If the
 categories changed since (edited, deleted, merged, a backup restored…), the saved plan is not used:
 the inputs come back and the plan is made again for the categories as they are. If a purchase was
@@ -193,8 +194,9 @@ these fingerprints) are restored when all their categories still exist.
 An empty fee means no fee; a negative amount (the total or a category's), minimum order or fee
 stops planning with a message, and so does a number that can't be read ("0,5", "1000..") in the
 amount, a category's amount (unless it gets "the rest") or an option: it isn't read as empty, it
-stays as typed when the field is left, no plan is offered (not even a restored one), and the saved
-plan is kept while it is being corrected. An amount of 0 plans with the cash carried over from
+stays as typed when the field is left (until "Reset to rules" or starting over), no plan is offered
+(not even a restored one), and the saved plan is kept while it is being corrected; emptying the total
+of the saved plan forgets it. An amount of 0 plans with the cash carried over from
 earlier purchases (only an empty amount means "not started"; the page suggests 0 only when some
 category has cash left).
 The record dialog records the plan as it was when "I made a purchase" was pressed, even if prices
@@ -230,7 +232,8 @@ ones list their fields in different orders). Open copies of the app follow each 
 and *Later* adds to the mark as stored now, so it never forgets a backup made in another copy.
 Marks saved by earlier versions (whose fingerprint depended on key order) still count. The "saved
 data couldn't be read" message goes away once the user restores a backup, loads the sample or
-deletes all data, here or in another open copy.
+deletes all data, here or in another open copy (a start-over writes `stockbalance:started-over`, so
+other copies hear of it even when the data itself doesn't change).
 
 ## Prices and FX
 
@@ -292,8 +295,9 @@ or as each stock's share of the group (e.g. AMZN 60% + TSLA 40%), which must add
 saved stock targets differ opens with its own split: the shares are shown rounded to 0.01% (adding
 up to exactly 100%), and the exact shares behind them count while none of them was retyped (once one
 is, the shares shown count, so the stocks' targets always add up to the group's). A group left as it
-was saved (same target, split and stocks) writes back its stocks' saved targets unchanged, so opening
-and saving a category never changes them. Switching to an own split starts from the equal shares.
+was saved (same target, split, stocks and shares — not shares made anew by switching the split,
+scaling or moving stocks) writes back its stocks' saved targets unchanged, so opening and saving a
+category never changes them. Switching to an own split starts from the equal shares.
 In the box another single stock of the category can be moved into the group (chosen in a list, then
 "Move in"), and a stock taken out of it; the targets move with it so the category's total doesn't
 change. Moving in raises the group's target by the stock's target and keeps every stock's part of the

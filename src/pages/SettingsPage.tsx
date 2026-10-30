@@ -33,9 +33,13 @@ export function SettingsPage() {
    * The last forwarder test and the address it was for: shown only while that is still the address
    * (it may change by typing, a restore, deleting all data or another copy of the app).
    */
-  const [lastProxyTest, setProxyTest] = useState<{ url: string; result: { ok: boolean; text: string } | 'testing' } | null>(
-    null,
-  );
+  const [lastProxyTest, setProxyTest] = useState<{
+    url: string;
+    run: number;
+    result: { ok: boolean; text: string } | 'testing';
+  } | null>(null);
+  /** Counts the tests started, so only the newest one's answer is shown. */
+  const proxyTestRun = useRef(0);
   const proxyTest = lastProxyTest && lastProxyTest.url === settings.yahooProxyUrl ? lastProxyTest.result : null;
   const [minOrder, setMinOrder] = useState<number | null>(settings.minOrderUsd);
   const [maxTickers, setMaxTickers] = useState<number | null>(settings.maxTickersPerPurchase);
@@ -141,13 +145,15 @@ export function SettingsPage() {
               disabled={!settings.yahooProxyUrl || proxyTest === 'testing'}
               onClick={async () => {
                 const url = settings.yahooProxyUrl;
-                setProxyTest({ url, result: 'testing' });
+                const run = ++proxyTestRun.current;
+                setProxyTest({ url, run, result: 'testing' });
                 const r = await fetchPrices(['VOO'], { ...settings, priceProvider: 'yahoo' });
-                // Only the newest test counts (one for another address may have started since).
+                // Only the newest test counts (another may have started since, also for the same address).
                 setProxyTest((t) =>
-                  t?.url === url && t.result === 'testing'
+                  t?.run === run
                     ? {
                         url,
+                        run,
                         result: r.quotes.VOO
                           ? { ok: true, text: `Works: VOO is $${r.quotes.VOO.priceUsd.toFixed(2)}.` }
                           : { ok: false, text: r.failures.VOO ?? "It didn't work." },

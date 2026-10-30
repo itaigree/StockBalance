@@ -2,6 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { AppData, Category, FxQuote, Id, PriceQuote, Settings, Transaction } from '../types';
 import { applyTransaction, revertTransaction } from '../engine';
 import { loadData, saveData, STORAGE_KEY } from '../data/storage';
+
+/** Written when a copy of the app starts over with other data (restore, sample, delete all). */
+const STARTED_OVER_KEY = 'stockbalance:started-over';
 import { parseAppData } from '../data/schema';
 import { fetchPrices } from '../data/prices';
 import { fetchUsdIls } from '../data/fx';
@@ -144,6 +147,7 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
   // copy doesn't later save its older data over it.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
+      if (e.key === STARTED_OVER_KEY) setLoadError(null);
       if (e.key !== STORAGE_KEY || e.newValue === null) return;
       let json: unknown;
       try {
@@ -224,8 +228,14 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
         // New data: fetch everything again (prices and the exchange rate) once it has stocks.
         requested.current.clear();
         refreshedOnce.current = false;
-        // Restoring a backup or starting anew is what the "couldn't be read" message asks for.
+        // Restoring a backup or starting anew is what the "couldn't be read" message asks for. Other
+        // copies are told too (the data alone may not change, e.g. deleting what was already empty).
         setLoadError(null);
+        try {
+          window.localStorage.setItem(STARTED_OVER_KEY, new Date().toISOString());
+        } catch {
+          // Only used for that message.
+        }
         dispatch({ type: 'replace', data: d });
         setGeneration((g) => g + 1);
       },

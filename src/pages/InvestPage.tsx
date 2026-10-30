@@ -10,6 +10,7 @@ import {
   clearDraft,
   loadDraft,
   planStillFits,
+  purchasesKey,
   saveDraft,
   usableDraft,
   type InvestInputs,
@@ -31,7 +32,7 @@ export function InvestPage() {
 
   // A plan saved earlier (e.g. before placing the orders and reloading) is restored as it was.
   const latestTxId = data.transactions.at(-1)?.id ?? null;
-  const [draft] = useState(() => usableDraft(loadDraft(), latestTxId));
+  const [draft] = useState(() => usableDraft(loadDraft(), data.transactions));
   const restored = draft?.inputs;
   const [total, setTotal] = useState<number | null>(restored?.total ?? null);
   /** Amounts the user typed for this purchase (category id → ILS). */
@@ -75,6 +76,7 @@ export function InvestPage() {
     setRestId(null);
     setExcluded([]);
     setRecording(null);
+    forgetAmountText();
     clearDraft();
     // The banner's Undo is for the purchase recorded here, while it is still the newest one.
     if (recorded?.txId !== latestTxId) {
@@ -96,6 +98,11 @@ export function InvestPage() {
       else next.add(id);
       return next;
     });
+  /** The categories' amounts go back to the rules: what was typed in them no longer counts. */
+  const forgetAmountText = () =>
+    setUnreadable((s) =>
+      [...s].some((id) => id.startsWith('amount:')) ? new Set([...s].filter((id) => !id.startsWith('amount:'))) : s,
+    );
   const backup = useBackup();
   const [backedUp, setBackedUp] = useState(false);
 
@@ -200,12 +207,16 @@ export function InvestPage() {
   // Keep the latest plan so it survives a reload; forget it once there is nothing to plan. While an
   // amount or option is being corrected, the last good plan stays saved.
   const planKey = livePlan && shown ? JSON.stringify({ ...shown, savedAt: '' }) : '';
+  /** The total of the plan saved last (null when it was made from the categories' amounts alone). */
+  const savedTotal = useRef<number | null>(restored?.total ?? null);
   const inputsOk = optionsValid && amountsValid;
   useEffect(() => {
     if (frozen) return;
     if (!started) {
-      // Only an empty amount forgets it; one being corrected (unreadable or below 0) doesn't.
-      if (!unreadable.has('total') && !((total ?? 0) < 0)) clearDraft();
+      // Emptying the total of the saved plan forgets it; an amount being corrected (unreadable or below
+      // 0) doesn't, also when the plan was made from the categories' amounts alone.
+      const clearedTotal = total === null && !unreadable.has('total') && savedTotal.current !== null;
+      if (clearedTotal || (!unreadableAmount && !negativeAmount)) clearDraft();
       return;
     }
     if (!inputsOk) return;
@@ -213,15 +224,23 @@ export function InvestPage() {
       clearDraft();
       return;
     }
+    savedTotal.current = total;
     saveDraft({
       inputs,
-      saved: { ...shown, savedAt: new Date().toISOString(), categoriesKey: catsKey, lastTxId: latestTxId },
+      saved: {
+        ...shown,
+        savedAt: new Date().toISOString(),
+        categoriesKey: catsKey,
+        lastTxId: latestTxId,
+        purchasesKey: purchasesKey(data.transactions),
+      },
     });
     // `inputs`, `shown`, the categories and the purchases are fully described by these keys.
   }, [frozen, started, inputsOk, inputsKey, planKey, latestTxId, unreadable]);
 
   const afterRecording = (kind: 'purchase' | 'cash', txId: string) => {
     setRecording(null);
+    forgetAmountText();
     setRecorded({ kind, txId });
     setBackedUp(false);
     setFrozen(null);
@@ -338,6 +357,7 @@ export function InvestPage() {
               onClick={() => {
                 setOverrides({});
                 setRestId(null);
+                forgetAmountText();
               }}
             >
               Reset to rules
@@ -547,7 +567,7 @@ export function InvestPage() {
         </>
       )}
 
-      {frozen && (
+      {frozen && shown && (
         <div className="banner info" role="status">
           This is the plan you made {fmtAgo(frozen.savedAt)} ({fmtDateTime(frozen.savedAt)}), with the prices from then. If
           you already bought, press "I made a purchase" below.{' '}

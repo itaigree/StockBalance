@@ -33,15 +33,25 @@ export interface SavedPlan {
   categoriesKey?: string;
   /** Id of the newest purchase when the plan was made (missing in older drafts). */
   lastTxId?: string | null;
+  /** `purchasesKey` of all the purchases when the plan was made (missing in older drafts). */
+  purchasesKey?: string;
 }
 
 /**
  * The saved draft if it still applies: no purchase was recorded or undone since it was made (else
  * its money may already be spent). Drafts from older versions don't know, and are kept.
  */
-export function usableDraft(draft: InvestDraft | null, latestTxId: string | null): InvestDraft | null {
+export function usableDraft(draft: InvestDraft | null, transactions: { id: string }[]): InvestDraft | null {
   if (!draft) return null;
-  return draft.saved.lastTxId === undefined || draft.saved.lastTxId === latestTxId ? draft : null;
+  const { purchasesKey: key, lastTxId } = draft.saved;
+  // Any purchase recorded or undone since, also an older one; drafts that only know the newest compare that.
+  if (key !== undefined) return key === purchasesKey(transactions) ? draft : null;
+  return lastTxId === undefined || lastTxId === (transactions.at(-1)?.id ?? null) ? draft : null;
+}
+
+/** A fingerprint of which purchases there are. */
+export function purchasesKey(transactions: { id: string }[]): string {
+  return fingerprint(JSON.stringify(transactions.map((t) => t.id)));
 }
 
 /** Whether a saved plan can be shown and recorded as it was: its categories haven't changed since. */

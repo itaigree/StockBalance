@@ -159,6 +159,41 @@ describe('price forwarder', () => {
     }
   });
 
+  it('shows only the newest test, also when an older one of the same address answers late', async () => {
+    const answers: ((r: Response) => void)[] = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => answers.push(resolve))));
+    const yahoo = (price: number) =>
+      new Response(JSON.stringify({ chart: { result: [{ meta: { currency: 'USD', regularMarketPrice: price } }], error: null } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    try {
+      const { user } = renderApp('settings', sample());
+      const address = screen.getByLabelText('Price forwarder address');
+      await user.type(address, 'https://a.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await user.clear(address);
+      await user.type(address, 'https://b.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await user.clear(address);
+      await user.type(address, 'https://a.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await act(async () => {
+        answers[0](yahoo(1));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(screen.getByRole('button', { name: 'Testing…' })).toBeInTheDocument();
+      expect(screen.queryByText(/^Works: VOO/)).not.toBeInTheDocument();
+      await act(async () => {
+        answers[2](yahoo(575.3));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(screen.getByText('Works: VOO is $575.30.')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not show a test result once the address changed in another copy', async () => {
     const data = sample();
     data.settings = { ...data.settings, yahooProxyUrl: 'https://good.example.workers.dev' };

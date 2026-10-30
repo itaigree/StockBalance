@@ -302,6 +302,7 @@ describe('InvestPage', () => {
     const draft = JSON.parse(window.localStorage.getItem('stockbalance:invest-draft')!);
     delete draft.saved.categoriesKey;
     delete draft.saved.lastTxId;
+    delete draft.saved.purchasesKey;
     window.localStorage.setItem('stockbalance:invest-draft', JSON.stringify(draft));
 
     const later = sample();
@@ -559,6 +560,67 @@ describe('InvestPage', () => {
       expect(within(dialog).getByText('Enter the price in numbers only (e.g. 27.50).')).toBeInTheDocument();
       await user.click(within(dialog).getByRole('button', { name: 'Record purchase' }));
       expect(savedData().transactions).toHaveLength(0);
+    });
+  });
+
+  describe('after the second review of the fixes', () => {
+    it('"Reset to rules" also clears an amount that could not be read', async () => {
+      const { user } = renderApp('invest', sample());
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      const kids = screen.getByLabelText('New money for Kids');
+      await user.clear(kids);
+      await user.type(kids, '1000..');
+      expect(screen.queryByRole('button', { name: 'I made a purchase' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Reset to rules' }));
+      expect(screen.getByLabelText('New money for Kids')).toHaveValue('1,000');
+      expect(screen.getByRole('button', { name: 'I made a purchase' })).toBeInTheDocument();
+    });
+
+    it('keeps a plan made from the categories\' amounts while one of them is corrected', async () => {
+      const data = sample();
+      data.categories = data.categories.map((c) => ({ ...c, cashIls: 0 }));
+      const { user } = renderApp('invest', data);
+      const kids = screen.getByLabelText('New money for Kids');
+      await user.clear(kids);
+      await user.type(kids, '1000');
+      expect(window.localStorage.getItem('stockbalance:invest-draft')).not.toBeNull();
+      await user.type(kids, ',');
+      expect(window.localStorage.getItem('stockbalance:invest-draft')).not.toBeNull();
+      await user.type(kids, '{Backspace}{Home}-');
+      expect(kids).toHaveValue('-1000');
+      expect(window.localStorage.getItem('stockbalance:invest-draft')).not.toBeNull();
+    });
+
+    it('does not point to a plan it is not showing', async () => {
+      const first = renderApp('invest', sample());
+      await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      first.unmount();
+      const { user } = renderApp('invest', sample());
+      expect(screen.getByText(/This is the plan you made/)).toBeInTheDocument();
+      await user.type(screen.getByLabelText(/Max different stocks/), 'two');
+      expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+    });
+
+    it('restores nothing after an older purchase was undone while the page was closed', async () => {
+      const tx = (id: string) => ({
+        id,
+        date: '2026-10-01T10:00:00.000Z',
+        usdIls: 3.7,
+        fxFeePercent: 0,
+        orders: [],
+        allocations: [],
+        cash: [],
+      });
+      const data = sample();
+      data.transactions = [tx('p1'), tx('p2')];
+      const first = renderApp('invest', data);
+      await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      first.unmount();
+      const undone = sample();
+      undone.transactions = [tx('p2')];
+      renderApp('invest', undone);
+      expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
     });
   });
 });

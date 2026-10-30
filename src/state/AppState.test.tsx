@@ -135,6 +135,20 @@ describe('a saved copy that could not be read', () => {
     expect(app.current!.loadError).toBeNull();
   });
 
+  it('stops saying so when another copy starts over, even with the same (empty) data', () => {
+    window.localStorage.setItem('stockbalance:data', '{not json');
+    const app = renderProvider();
+    expect(app.current!.loadError).toMatch(/couldn't be read/);
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'stockbalance:started-over', newValue: '2026-10-30T10:00:00.000Z' }));
+    });
+    expect(app.current!.loadError).toBeNull();
+    // And starting over here tells the other copies.
+    window.localStorage.removeItem('stockbalance:started-over');
+    act(() => app.current!.actions.startOver(emptyData()));
+    expect(window.localStorage.getItem('stockbalance:started-over')).not.toBeNull();
+  });
+
   it('stops saying so once another copy saves data that can be read', () => {
     window.localStorage.setItem('stockbalance:data', '{not json');
     const app = renderProvider();

@@ -46,8 +46,11 @@ interface Group {
   percent: number | null;
   /** True: split equally between its stocks; false: each stock has its own share of the group. */
   equal: boolean;
-  /** The group as saved (its stocks' targets by row key), written back unchanged while it's left as it was. */
-  stored?: { percent: number; equal: boolean; targets: Record<string, number> };
+  /**
+   * The group as saved (its stocks' targets and exact shares by row key), written back unchanged while
+   * it's left as it was.
+   */
+  stored?: { percent: number; equal: boolean; targets: Record<string, number>; shares: Record<string, number> };
 }
 
 interface Props {
@@ -135,6 +138,7 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
       percent: g.percent,
       equal: g.equal,
       targets: Object.fromEntries(members.map((r, i) => [r.key, parts[i]])),
+      shares: Object.fromEntries(members.map((r, i) => [r.key, g.equal ? 0 : shares[i].share])),
     };
   }
   for (const ticker of Object.keys(category.holdings)
@@ -230,7 +234,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       g.equal === s.equal &&
       members.length === Object.keys(s.targets).length &&
       members.every((r) => r.key in s.targets) &&
-      (g.equal || exactShares(g))
+      // The same shares as saved (not new ones from switching the split, scaling, moving stocks…).
+      (g.equal || (exactShares(g) && members.every((r) => r.exact!.share === s.shares[r.key])))
     );
   };
   const sharesTotal = (g: Group) => filledMembers(g).reduce((s, r) => s + (r.percent ?? 0), 0);

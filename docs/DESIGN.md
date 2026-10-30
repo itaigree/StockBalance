@@ -291,7 +291,8 @@ In the category editor a group takes one line: its name, its target in the categ
 names (with their shares when the split isn't equal). Clicking it opens the group's box, where the
 user sets the group's target in the category first, then how it is split between its stocks: equally,
 or as each stock's share of the group (e.g. AMZN 60% + TSLA 40%), which must add up to 100% (with a
-"Scale to 100%"). Saving writes each stock's target as the group's target × its share. A group whose
+"Scale to 100%"; give or take 0.01). Saving writes each stock's target as the group's target in
+proportion to its share, so the stocks' targets always add up to the group's target. A group whose
 saved stock targets differ opens with its own split: the shares are shown rounded to 0.01% (adding
 up to exactly 100%), and the exact shares behind them count while none of them was retyped (once one
 is, the shares shown count, so the stocks' targets always add up to the group's). A group left as it
@@ -306,8 +307,9 @@ category, so an equal split becomes the group's own split when the parts differ 
 part; in an own split, or when the group has no target yet, the others keep their shares and the
 stock's share is left to set. Taking out gives the stock its part of the group's target, rounded to
 0.01%, and lowers the group's target by exactly that (the others' shares grow to fill the group
-again); the last stock taken out gets the group's whole target, and the group is removed with any
-blank rows.
+again, unless they already add up to 100%); the last stock taken out gets the group's whole
+target, and the group is removed with any blank rows. Taking out a blank row removes only that row.
+Single stocks' targets are kept as saved too.
 Scaling targets to 100% (single stocks and groups) and splitting into shares use largest-remainder
 rounding to 0.01%, so no target ends up below 0. A number that can't be read (a stock's target,
 share or shares, or a group's target) keeps its text, and blocks saving, also while the stock list

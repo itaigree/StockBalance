@@ -116,7 +116,8 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
     rows.push({
       key,
       ticker: t.ticker,
-      percent: Math.round(t.percent * 1e6) / 1e6,
+      // As saved, so opening and saving keeps it (a group's stocks get their shares below).
+      percent: t.percent,
       shares: category.holdings[t.ticker] ?? null,
       ...(groupKey ? { group: groupKey } : {}),
     });
@@ -239,6 +240,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     );
   };
   const sharesTotal = (g: Group) => filledMembers(g).reduce((s, r) => s + (r.percent ?? 0), 0);
+  /** What the group's shares add up to, as saving uses them. */
+  const sharesSum = (g: Group) => filledMembers(g).reduce((s, r) => s + shareOf(g, r), 0);
   const targetTotal =
     filled.filter((r) => !r.group).reduce((s, r) => s + (r.percent ?? 0), 0) +
     groups.reduce((s, g) => s + (g.percent ?? 0), 0);
@@ -289,8 +292,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       else if (groupNames.has(n)) e.groups[g.key] = 'Two groups have this name.';
       else if (`${g.key}:target` in unreadable)
         e.groups[g.key] = 'Enter the group’s target in numbers only (e.g. 2.5).';
-      else if (!(g.percent !== null && g.percent > 0 && g.percent <= 100))
-        e.groups[g.key] = 'Set the group’s target (above 0%).';
+      else if (g.percent !== null && g.percent > 100) e.groups[g.key] = 'A group’s target can’t be above 100%.';
+      else if (!(g.percent !== null && g.percent > 0)) e.groups[g.key] = 'Set the group’s target (above 0%).';
       else if (filledMembers(g).length === 0) e.groups[g.key] = 'Add at least one stock to the group.';
       else if (!g.equal && Math.abs(sharesTotal(g) - 100) > 0.01)
         e.groups[g.key] = `The stocks’ shares add up to ${pct(sharesTotal(g))}; they must add up to 100% of the group.`;
@@ -331,7 +334,16 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     if (sharesTotal(g) <= 0) return;
     const shares = sharesFor(members.map((r) => r.percent!));
     const byKey = new Map(members.map((r, i) => [r.key, shares[i]]));
-    setRows((rs) => rs.map((r) => (byKey.has(r.key) ? withShare(r, byKey.get(r.key)!) : r)));
+    setRows((rs) =>
+      rs.map((r) => {
+        if (byKey.has(r.key)) return withShare(r, byKey.get(r.key)!);
+        if (r.group !== g.key || !r.exact) return r;
+        // Left out (no share): no exact share behind its 0 either.
+        const next = { ...r };
+        delete next.exact;
+        return next;
+      }),
+    );
   };
 
   const addGroup = () => {
@@ -400,11 +412,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
    */
   const takeOut = (g: Group, r: Row) => {
     if (r.ticker.trim() === '') {
+      // A blank row: only it goes (the group, its name and target stay; "Remove group" removes it).
       setRows((rs) => rs.filter((x) => x.key !== r.key));
-      if (membersOf(g).length === 1) {
-        setGroups((gs) => gs.filter((x) => x.key !== g.key));
-        setOpenGroup(null);
-      }
       return;
     }
     const others = filledMembers(g).filter((m) => m.key !== r.key);
@@ -412,8 +421,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     // last stock gets the whole target of the group, which goes away).
     const part = others.length === 0 ? (g.percent ?? 0) : round2(((g.percent ?? 0) * shareOf(g, r)) / 100);
     const shares = new Map<string, { shown: number; share: number }>();
-    // The others' shares: the exact one behind each share still as computed, else the one shown.
-    const left = others.map((m) => (m.exact && m.percent === m.exact.shown ? m.exact.share : (m.percent ?? 0)));
+    // The others' shares: the exact ones while all of theirs are as computed, else the ones shown.
+    const othersExact = others.every((m) => m.exact && m.percent === m.exact.shown);
+    const left = others.map((m) => (othersExact ? m.exact!.share : (m.percent ?? 0)));
     // When they already fill the group (the stock taken out had no share), they stay as they are, so a
     // group left as saved stays so; otherwise they grow to fill it again, in proportion to what they had
     // (when none is set yet, only a lone stock gets it all).
@@ -522,7 +532,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             ticker: normalizeTicker(r.ticker),
             percent: untouched(g)
               ? g.stored!.targets[r.key]
-              : Math.round(((g.percent! * shareOf(g, r)) / 100) * 1e9) / 1e9,
+              : // In proportion to the shares, so they add up to the group's target (the shares shown may
+                // add up to 100% give or take 0.01).
+                Math.round(((g.percent! * shareOf(g, r)) / sharesSum(g)) * 1e9) / 1e9,
             group: g.name.trim(),
           })),
         ),

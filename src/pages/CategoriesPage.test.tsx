@@ -867,6 +867,110 @@ describe('category editor: group targets after a review of the fixes', () => {
     }
   });
 
+  it('leaves shares the user typed alone when a stock without a share is taken out', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 93.53 },
+        { ticker: 'AMZN', percent: 2.42, group: 'Corp' },
+        { ticker: 'TSLA', percent: 0.1, group: 'Corp' },
+        { ticker: 'MSFT', percent: 3.39, group: 'Corp' },
+        { ticker: 'NVDA', percent: 0.56, group: 'Corp' },
+      ]),
+    );
+    const { box } = await openGroup(user, 'Corp');
+    const shares = () => within(box).getAllByLabelText(/^Share of the group/).map((f) => (f as HTMLInputElement).value);
+    await setField(user, within(box).getAllByLabelText(/^Share of the group/)[0], '37.41');
+    await setField(user, within(box).getAllByLabelText(/^Share of the group/)[1], '1.54');
+    const before = shares();
+    await user.click(within(box).getByRole('button', { name: '+ Add stock' }));
+    const tickers = within(box).getAllByLabelText(/^Ticker, row/);
+    await user.type(tickers[tickers.length - 1], 'XYZ');
+    await user.click(within(box).getByRole('button', { name: 'Take XYZ out of the group' }));
+    expect(shares()).toEqual(before);
+  });
+
+  it('saves stock targets that add up to the group target when the shares are 0.01 off 100%', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 90 },
+        { ticker: 'AMZN', percent: 4, group: 'Corp' },
+        { ticker: 'TSLA', percent: 3, group: 'Corp' },
+        { ticker: 'MSFT', percent: 3, group: 'Corp' },
+      ]),
+    );
+    const { dialog, box } = await openGroup(user, 'Corp');
+    for (const f of within(box).getAllByLabelText(/^Share of the group/)) await setField(user, f, '33.333');
+    expect(within(box).getByText('Shares add up to 100%')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(groupSum('Corp')).toBeCloseTo(10, 6);
+    // It opens with the same target and saves again.
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    expect(within(screen.getByRole('dialog')).getByLabelText('Group target percent, group 1')).toHaveValue('10');
+  });
+
+  it('says when a group target is above 100%', async () => {
+    const { user } = renderApp('categories', withTargets([{ ticker: 'AMZN', percent: 100, group: 'Corp' }]));
+    const { dialog, box } = await openGroup(user, 'Corp');
+    await setField(user, within(box).getByLabelText('Group target percent, group 1'), '120');
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    expect(within(dialog).getByText('A group’s target can’t be above 100%.')).toBeInTheDocument();
+  });
+
+  it('asks for a share for a stock that Scale to 100% left at 0%, and then saves targets adding up to the group', async () => {
+    const { user } = renderApp(
+      'categories',
+      withTargets([
+        { ticker: 'VOO', percent: 93 },
+        { ticker: 'AMZN', percent: 4, group: 'Corp' },
+        { ticker: 'TSLA', percent: 3, group: 'Corp' },
+      ]),
+    );
+    const { dialog, box } = await openGroup(user, 'Corp');
+    await setField(user, within(box).getAllByLabelText(/^Share of the group/)[1], '0.01');
+    const list = within(box).getByRole('combobox', { name: "Move one of the category's stocks into the group" });
+    await user.selectOptions(list, 'VOO (93%)');
+    await user.click(within(box).getByRole('button', { name: 'Move in' }));
+    const voo = within(box).getByDisplayValue('VOO').closest('tr')!;
+    await setField(user, within(voo).getByLabelText(/^Share of the group/), '96');
+    await user.click(within(box).getByRole('button', { name: 'Scale to 100%' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    // TSLA shows 0%: it has no hidden share left that would be saved anyway.
+    expect(within(box).getByText('Set this stock’s share of the group (above 0%).')).toBeInTheDocument();
+    await user.click(within(box).getByRole('button', { name: 'Take TSLA out of the group' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(groupSum('Corp')).toBeCloseTo(100, 6);
+  });
+
+  it('keeps a new group when its only, blank row is taken out', async () => {
+    const { user } = renderApp('categories', sample());
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: '+ Add group' }));
+    const box = within(dialog).getByRole('group', { name: /^Group/ });
+    await user.type(within(box).getByLabelText('Group name, group 1'), 'N0');
+    await user.type(within(box).getByLabelText('Group target percent, group 1'), '5');
+    await user.click(within(box).getByRole('button', { name: /out of the group$/ }));
+    expect(within(dialog).getByRole('group', { name: 'Group N0' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Group target percent, group 1')).toHaveValue('5');
+  });
+
+  it('keeps single targets with many decimals when a category is opened and saved unchanged', async () => {
+    const targets = [
+      { ticker: 'VOO', percent: 33.3333333 },
+      { ticker: 'VXUS', percent: 33.3333333 },
+      { ticker: 'BND', percent: 33.3333334 },
+    ];
+    const { user } = renderApp('categories', withTargets(targets));
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(savedData().categories[0].targets).toEqual(targets);
+  });
+
   it('gives the last stock taken out of a group the whole group target', async () => {
     const { user } = renderApp(
       'categories',

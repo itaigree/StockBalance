@@ -817,6 +817,56 @@ describe('category editor: group targets after a review of the fixes', () => {
     expect(savedData().categories[0].targets).toEqual(targets);
   });
 
+  it('keeps the saved targets when several stocks without a share are added, then taken out', async () => {
+    const data = withTargets([
+      { ticker: 'VOO', percent: 93 },
+      { ticker: 'AMZN', percent: 4, group: 'Corp' },
+      { ticker: 'TSLA', percent: 3, group: 'Corp' },
+    ]);
+    const targets = data.categories[0].targets;
+    const { user } = renderApp('categories', data);
+    const { dialog, box } = await openGroup(user, 'Corp');
+    for (const t of ['ABC', 'DEF']) {
+      await user.click(within(box).getByRole('button', { name: '+ Add stock' }));
+      const tickers = within(box).getAllByLabelText(/^Ticker, row/);
+      await user.type(tickers[tickers.length - 1], t);
+    }
+    await user.click(within(box).getByRole('button', { name: 'Take ABC out of the group' }));
+    await user.click(within(box).getByRole('button', { name: 'Take DEF out of the group' }));
+    await user.click(within(box).getByRole('button', { name: 'Done' }));
+    for (const t of ['ABC', 'DEF']) {
+      const row = within(dialog).getByDisplayValue(t).closest('tr')!;
+      await user.click(within(row).getByRole('button', { name: /^Remove row/ }));
+    }
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(savedData().categories[0].targets).toEqual(targets);
+  });
+
+  it('fills the group again when a stock whose share was cleared or set to 0 is taken out', async () => {
+    for (const typed of ['', '0']) {
+      const r = renderApp(
+        'categories',
+        withTargets([
+          { ticker: 'VOO', percent: 93 },
+          { ticker: 'AMZN', percent: 4, group: 'Corp' },
+          { ticker: 'TSLA', percent: 3, group: 'Corp' },
+        ]),
+      );
+      const { dialog, box } = await openGroup(r.user, 'Corp');
+      const amzn = within(box).getAllByLabelText(/^Share of the group/)[0];
+      await r.user.clear(amzn);
+      if (typed) await r.user.type(amzn, typed);
+      await r.user.click(within(box).getByRole('button', { name: 'Take AMZN out of the group' }));
+      expect(within(box).getByText('Shares add up to 100%')).toBeInTheDocument();
+      await r.user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      const tsla = savedData().categories[0].targets.find((t) => t.ticker === 'TSLA');
+      expect(tsla).toEqual({ ticker: 'TSLA', percent: 7, group: 'Corp' });
+      r.unmount();
+    }
+  });
+
   it('gives the last stock taken out of a group the whole group target', async () => {
     const { user } = renderApp(
       'categories',

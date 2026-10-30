@@ -791,6 +791,32 @@ describe('category editor: group targets after a review of the fixes', () => {
     expect([target('AMZN'), target('TSLA')]).toEqual([2, 2]);
   });
 
+  it('keeps the saved targets when a stock without a share is added or moved in, then taken out', async () => {
+    const data = withTargets([
+      { ticker: 'VOO', percent: 93 },
+      { ticker: 'AMZN', percent: 4, group: 'Corp' },
+      { ticker: 'TSLA', percent: 3, group: 'Corp' },
+    ]);
+    data.categories[0].holdings = { XYZ: 1 };
+    const targets = data.categories[0].targets;
+    const { user } = renderApp('categories', data);
+    const { dialog, box } = await openGroup(user, 'Corp');
+    await user.click(within(box).getByRole('button', { name: '+ Add stock' }));
+    const tickers = within(box).getAllByLabelText(/^Ticker, row/);
+    await user.type(tickers[tickers.length - 1], 'ABC');
+    await user.click(within(box).getByRole('button', { name: 'Take ABC out of the group' }));
+    await user.selectOptions(within(box).getByRole('combobox', { name: "Move one of the category's stocks into the group" }), 'XYZ');
+    await user.click(within(box).getByRole('button', { name: 'Move in' }));
+    await user.click(within(box).getByRole('button', { name: 'Take XYZ out of the group' }));
+    await user.click(within(box).getByRole('button', { name: 'Done' }));
+    // ABC is now a single stock without a target: remove its row.
+    const abc = within(dialog).getByDisplayValue('ABC').closest('tr')!;
+    await user.click(within(abc).getByRole('button', { name: /^Remove row/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(savedData().categories[0].targets).toEqual(targets);
+  });
+
   it('gives the last stock taken out of a group the whole group target', async () => {
     const { user } = renderApp(
       'categories',

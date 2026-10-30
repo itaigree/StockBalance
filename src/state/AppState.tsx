@@ -138,9 +138,21 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
 
   // Persist every change (except data that just came from storage, which is already saved).
   const fromStorage = useRef<AppData | null>(null);
+  /** Data a start-over put in place: other copies are told once it is saved. */
+  const startedOver = useRef<AppData | null>(null);
   useEffect(() => {
     if (data === fromStorage.current) return;
-    setSaveError(saveData(data).error ?? null);
+    const error = saveData(data).error ?? null;
+    setSaveError(error);
+    if (data === startedOver.current && !error) {
+      startedOver.current = null;
+      // The data alone may not change (e.g. deleting what was already empty), so say it.
+      try {
+        window.localStorage.setItem(STARTED_OVER_KEY, new Date().toISOString());
+      } catch {
+        // Only used for the "couldn't be read" message.
+      }
+    }
   }, [data]);
 
   // Another copy of the app (another tab, or the installed app) saved newer data: take it, so this
@@ -228,14 +240,10 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
         // New data: fetch everything again (prices and the exchange rate) once it has stocks.
         requested.current.clear();
         refreshedOnce.current = false;
-        // Restoring a backup or starting anew is what the "couldn't be read" message asks for. Other
-        // copies are told too (the data alone may not change, e.g. deleting what was already empty).
+        // Restoring a backup or starting anew is what the "couldn't be read" message asks for; other
+        // copies are told once the new data is saved.
         setLoadError(null);
-        try {
-          window.localStorage.setItem(STARTED_OVER_KEY, new Date().toISOString());
-        } catch {
-          // Only used for that message.
-        }
+        startedOver.current = d;
         dispatch({ type: 'replace', data: d });
         setGeneration((g) => g + 1);
       },

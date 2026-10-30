@@ -412,8 +412,11 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     // last stock gets the whole target of the group, which goes away).
     const part = others.length === 0 ? (g.percent ?? 0) : round2(((g.percent ?? 0) * shareOf(g, r)) / 100);
     const shares = new Map<string, { shown: number; share: number }>();
-    if (!g.equal && others.length > 0) {
-      const left = others.map((m) => shareOf(g, m));
+    // The others' exact shares, while theirs are still as computed (the stock taken out may have none).
+    const othersExact = others.every((m) => m.exact && m.percent === m.exact.shown);
+    // A stock with no share leaves the others as they are (so a group left as saved stays so).
+    if (!g.equal && others.length > 0 && !(othersExact && shareOf(g, r) === 0)) {
+      const left = others.map((m) => (othersExact ? m.exact!.share : (m.percent ?? 0)));
       // Shares in proportion to what they had; when none is set yet, only a lone stock gets it all.
       if (left.some((x) => x > 0) || others.length === 1)
         sharesFor(left).forEach((s, i) => shares.set(others[i].key, s));

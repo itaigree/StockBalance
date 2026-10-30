@@ -623,4 +623,18 @@ describe('InvestPage', () => {
       expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
     });
   });
+
+  it('forgets the saved plan when its total is emptied, also while a category with cash is being corrected', async () => {
+    const first = renderApp('invest', sample());
+    await first.user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+    const kids = screen.getByLabelText('New money for Kids');
+    await first.user.clear(kids);
+    await first.user.type(kids, '1000..');
+    await first.user.clear(screen.getByLabelText('Amount to invest in ILS'));
+    expect(window.localStorage.getItem('stockbalance:invest-draft')).toBeNull();
+    first.unmount();
+    renderApp('invest', sample());
+    expect(screen.queryByText(/This is the plan you made/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Amount to invest in ILS')).toHaveValue('');
+  });
 });

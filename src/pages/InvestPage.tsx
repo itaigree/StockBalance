@@ -212,14 +212,17 @@ export function InvestPage() {
   const inputsOk = optionsValid && amountsValid;
   useEffect(() => {
     if (frozen) return;
+    // Emptying the total of the saved plan forgets it; an amount being corrected (unreadable or below
+    // 0) doesn't, also when the plan was made from the categories' amounts alone.
+    const clearedTotal = total === null && !unreadable.has('total') && savedTotal.current !== null;
     if (!started) {
-      // Emptying the total of the saved plan forgets it; an amount being corrected (unreadable or below
-      // 0) doesn't, also when the plan was made from the categories' amounts alone.
-      const clearedTotal = total === null && !unreadable.has('total') && savedTotal.current !== null;
       if (clearedTotal || (!unreadableAmount && !negativeAmount)) clearDraft();
       return;
     }
-    if (!inputsOk) return;
+    if (!inputsOk) {
+      if (clearedTotal) clearDraft();
+      return;
+    }
     if (!shown || shown.plan.errors.length > 0 || shown.plan.orders.length === 0) {
       clearDraft();
       return;

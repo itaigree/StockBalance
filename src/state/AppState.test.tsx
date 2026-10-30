@@ -149,6 +149,23 @@ describe('a saved copy that could not be read', () => {
     expect(window.localStorage.getItem('stockbalance:started-over')).not.toBeNull();
   });
 
+  it('tells other copies of a start-over only once its data is saved', () => {
+    const app = renderProvider();
+    window.localStorage.removeItem('stockbalance:started-over');
+    const setItem = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === 'stockbalance:data') throw new DOMException('Full', 'QuotaExceededError');
+      setItem.call(this, key, value);
+    });
+    try {
+      act(() => app.current!.actions.startOver(sample()));
+      expect(app.current!.saveError).not.toBeNull();
+      expect(window.localStorage.getItem('stockbalance:started-over')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('stops saying so once another copy saves data that can be read', () => {
     window.localStorage.setItem('stockbalance:data', '{not json');
     const app = renderProvider();

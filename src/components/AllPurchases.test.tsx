@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { AppData } from '../types';
 import { applyTransaction, planPurchase, transactionFromPlan } from '../engine';
 import { priceMap } from '../state/AppState';
 import { renderApp, sample, savedData } from '../test-utils';
+import { UndoModal } from './AllPurchases';
 
 function withPurchase(): { before: AppData; after: AppData } {
   const before = sample();
@@ -92,5 +93,30 @@ describe('a category’s purchases (its own page)', () => {
     const spent = kidsAlloc.reduce((sum, a) => sum + a.costUsd, 0);
     expect(within(body[2]).getByText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(spent))).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Kids totals' })).toHaveTextContent('Left over');
+  });
+});
+
+describe('UndoModal', () => {
+  it('warns when a category owns less than all the parts of one stock the purchase gave it', () => {
+    const data = sample();
+    const kids = { ...data.categories[1], holdings: { VOO: 1.1159, BND: 5 } };
+    const tx: AppData['transactions'][number] = {
+      id: 't',
+      date: '2026-10-29T10:00:00.000Z',
+      usdIls: 3.7,
+      fxFeePercent: 0,
+      orders: [
+        { ticker: 'VOO', shares: 1, priceUsd: 575.3 },
+        { ticker: 'VOO', shares: 1, priceUsd: 574.3 },
+      ],
+      allocations: [
+        { categoryId: 'sample-kids', ticker: 'VOO', shares: 0.2319, costUsd: 133.41, priceUsd: 575.3 },
+        { categoryId: 'sample-pension', ticker: 'VOO', shares: 0.7681, costUsd: 441.89, priceUsd: 575.3 },
+        { categoryId: 'sample-kids', ticker: 'VOO', shares: 1, costUsd: 574.3, priceUsd: 574.3 },
+      ],
+      cash: [],
+    };
+    render(<UndoModal tx={tx} categories={[data.categories[0], kids]} onClose={() => {}} onConfirm={() => {}} />);
+    expect(screen.getByText('Kids: VOO (has 1.1159, the purchase added 1.2319)')).toBeInTheDocument();
   });
 });

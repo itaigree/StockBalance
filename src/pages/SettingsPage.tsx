@@ -29,7 +29,18 @@ export function SettingsPage() {
   const { settings } = data;
   const backup = useBackup();
   const [showKey, setShowKey] = useState(false);
-  const [proxyTest, setProxyTest] = useState<{ ok: boolean; text: string } | 'testing' | null>(null);
+  /**
+   * The last forwarder test and the address it was for: shown only while that is still the address
+   * (it may change by typing, a restore, deleting all data or another copy of the app).
+   */
+  const [lastProxyTest, setProxyTest] = useState<{
+    url: string;
+    run: number;
+    result: { ok: boolean; text: string } | 'testing';
+  } | null>(null);
+  /** Counts the tests started, so only the newest one's answer is shown. */
+  const proxyTestRun = useRef(0);
+  const proxyTest = lastProxyTest && lastProxyTest.url === settings.yahooProxyUrl ? lastProxyTest.result : null;
   const [minOrder, setMinOrder] = useState<number | null>(settings.minOrderUsd);
   const [maxTickers, setMaxTickers] = useState<number | null>(settings.maxTickersPerPurchase);
   const [fee, setFee] = useState<number | null>(settings.fxFeePercent);
@@ -122,7 +133,6 @@ export function SettingsPage() {
               placeholder="https://stockbalance-prices.yourname.workers.dev"
               onChange={(e) => {
                 actions.updateSettings({ yahooProxyUrl: e.target.value.trim() });
-                setProxyTest(null);
               }}
               autoComplete="off"
               spellCheck={false}
@@ -134,12 +144,21 @@ export function SettingsPage() {
               className="secondary small"
               disabled={!settings.yahooProxyUrl || proxyTest === 'testing'}
               onClick={async () => {
-                setProxyTest('testing');
+                const url = settings.yahooProxyUrl;
+                const run = ++proxyTestRun.current;
+                setProxyTest({ url, run, result: 'testing' });
                 const r = await fetchPrices(['VOO'], { ...settings, priceProvider: 'yahoo' });
-                setProxyTest(
-                  r.quotes.VOO
-                    ? { ok: true, text: `Works: VOO is $${r.quotes.VOO.priceUsd.toFixed(2)}.` }
-                    : { ok: false, text: r.failures.VOO ?? "It didn't work." },
+                // Only the newest test counts (another may have started since, also for the same address).
+                setProxyTest((t) =>
+                  t?.run === run
+                    ? {
+                        url,
+                        run,
+                        result: r.quotes.VOO
+                          ? { ok: true, text: `Works: VOO is $${r.quotes.VOO.priceUsd.toFixed(2)}.` }
+                          : { ok: false, text: r.failures.VOO ?? "It didn't work." },
+                      }
+                    : t,
                 );
               }}
             >

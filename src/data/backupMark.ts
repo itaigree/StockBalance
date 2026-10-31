@@ -1,7 +1,8 @@
 import type { AppData } from '../types';
 import { fingerprint } from '../lib/fingerprint';
 
-const KEY = 'stockbalance:backup';
+export const BACKUP_MARK_KEY = 'stockbalance:backup';
+const KEY = BACKUP_MARK_KEY;
 
 /** Days after which changes not in a backup are worth a reminder. */
 const OLD_DAYS = 30;
@@ -27,7 +28,25 @@ export interface BackupMark {
  * settings), so price refreshes don't count as changes.
  */
 export function dataSignature(data: AppData): string {
+  return fingerprint(canonicalJson([data.categories, data.transactions, data.settings]));
+}
+
+/** The signature marks saved by earlier versions hold (it depended on the order of keys). */
+function legacySignature(data: AppData): string {
   return fingerprint(JSON.stringify([data.categories, data.transactions, data.settings]));
+}
+
+/** JSON with object keys sorted (and undefined values left out), so equal data gives equal text. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, (v as Record<string, unknown>)[k]]),
+        )
+      : v,
+  );
 }
 
 /** A fingerprint of which purchases there are. */
@@ -75,9 +94,15 @@ export function clearBackupMark(storage: Storage | null = safeStorage()): void {
   }
 }
 
-/** Hide the reminder for a while. */
-export function snoozeBackupReminder(mark: BackupMark, now: Date = new Date(), storage: Storage | null = safeStorage()): BackupMark {
-  return saveBackupMark({ ...mark, snoozedUntil: new Date(now.getTime() + SNOOZE_DAYS * DAY_MS).toISOString() }, storage);
+/**
+ * Hide the reminder for a while. Starts from the mark stored now, not one read earlier, so a backup
+ * made meanwhile in another open copy of the app isn't forgotten.
+ */
+export function snoozeBackupReminder(now: Date = new Date(), storage: Storage | null = safeStorage()): BackupMark {
+  return saveBackupMark(
+    { ...loadBackupMark(storage), snoozedUntil: new Date(now.getTime() + SNOOZE_DAYS * DAY_MS).toISOString() },
+    storage,
+  );
 }
 
 export type BackupReminder = 'never' | 'purchases' | 'old';
@@ -90,7 +115,7 @@ export function backupReminder(data: AppData, mark: BackupMark, now: Date = new 
   if (data.categories.length === 0) return null;
   if (mark.snoozedUntil && new Date(mark.snoozedUntil).getTime() > now.getTime()) return null;
   if (!mark.at) return 'never';
-  if (mark.signature === dataSignature(data)) return null;
+  if (mark.signature === dataSignature(data) || mark.signature === legacySignature(data)) return null;
   const purchasesChanged =
     mark.purchases !== undefined
       ? mark.purchases !== purchasesSignature(data)

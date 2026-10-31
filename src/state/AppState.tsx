@@ -2,6 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { AppData, Category, FxQuote, Id, PriceQuote, Settings, Transaction } from '../types';
 import { applyTransaction, revertTransaction } from '../engine';
 import { loadData, saveData, STORAGE_KEY } from '../data/storage';
+
+/** Written when a copy of the app starts over with other data (restore, sample, delete all). */
+const STARTED_OVER_KEY = 'stockbalance:started-over';
 import { parseAppData } from '../data/schema';
 import { fetchPrices } from '../data/prices';
 import { fetchUsdIls } from '../data/fx';
@@ -129,21 +132,34 @@ export function priceMap(prices: Record<string, PriceQuote>): Record<string, num
 export function AppStateProvider({ children, initialData }: { children: ReactNode; initialData?: AppData }) {
   const [initial] = useState(() => (initialData ? { data: initialData } : loadData()));
   const [data, dispatch] = useReducer(reducer, initial.data);
-  const [loadError] = useState<string | null>(initial.error ?? null);
+  const [loadError, setLoadError] = useState<string | null>(initial.error ?? null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [market, setMarket] = useState<MarketStatus>({ loading: false, lastRun: null, priceFailures: {}, fxError: null });
 
   // Persist every change (except data that just came from storage, which is already saved).
   const fromStorage = useRef<AppData | null>(null);
+  /** Data a start-over put in place: other copies are told once it is saved. */
+  const startedOver = useRef<AppData | null>(null);
   useEffect(() => {
     if (data === fromStorage.current) return;
-    setSaveError(saveData(data).error ?? null);
+    const error = saveData(data).error ?? null;
+    setSaveError(error);
+    if (data === startedOver.current && !error) {
+      startedOver.current = null;
+      // The data alone may not change (e.g. deleting what was already empty), so say it.
+      try {
+        window.localStorage.setItem(STARTED_OVER_KEY, new Date().toISOString());
+      } catch {
+        // Only used for the "couldn't be read" message.
+      }
+    }
   }, [data]);
 
   // Another copy of the app (another tab, or the installed app) saved newer data: take it, so this
   // copy doesn't later save its older data over it.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
+      if (e.key === STARTED_OVER_KEY) setLoadError(null);
       if (e.key !== STORAGE_KEY || e.newValue === null) return;
       let json: unknown;
       try {
@@ -154,6 +170,8 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
       const parsed = parseAppData(json);
       if (!parsed.ok) return;
       fromStorage.current = parsed.data;
+      // What is saved can be read now (e.g. a backup restored in the other copy).
+      setLoadError(null);
       dispatch({ type: 'replace', data: parsed.data });
     };
     window.addEventListener('storage', onStorage);
@@ -222,6 +240,10 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
         // New data: fetch everything again (prices and the exchange rate) once it has stocks.
         requested.current.clear();
         refreshedOnce.current = false;
+        // Restoring a backup or starting anew is what the "couldn't be read" message asks for; other
+        // copies are told once the new data is saved.
+        setLoadError(null);
+        startedOver.current = d;
         dispatch({ type: 'replace', data: d });
         setGeneration((g) => g + 1);
       },

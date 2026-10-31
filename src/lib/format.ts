@@ -95,7 +95,10 @@ export function normalizeTicker(s: string): string {
  * invalid input.
  */
 export function parseNumber(s: string): number | null {
-  const cleaned = s.replace(/[,_\s₪$]/g, '');
+  const t = s.replace(/[_\s₪$]/g, '');
+  // Commas only as thousands separators ("1,000"); "3,5" isn't read as 35 (it may mean 3.5).
+  if (t.includes(',') && !/^-?\d{1,3}(,\d{3})+(\.\d*)?$/.test(t)) return null;
+  const cleaned = t.replace(/,/g, '');
   if (cleaned === '' || cleaned === '-' || cleaned === '.') return null;
   if (!/^-?(\d+\.?\d*|\.\d+)$/.test(cleaned)) return null;
   const n = Number(cleaned);

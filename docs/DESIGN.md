@@ -169,7 +169,11 @@ A category's cost is its exact proportion of the order's cost (not the rounded s
 could charge a fraction of an agora more than it planned to spend); `spentIls` uses the executed FX
 rate and fee and is rounded to agorot, as is `cashIls`. In the per-category purchase summary, dollar
 amounts of new money are after the conversion fee, like the amounts spent, so they compare, and the
-price shown for a stock is the price of its orders (not cost ÷ rounded shares).
+price shown for a stock is the price of the orders the category's shares came from (not cost ÷
+rounded shares): each part of a purchase keeps its order's price (`priceUsd`), so when one stock is
+bought in two orders at different prices each category shows what it paid. Purchases recorded before
+that was kept show the average price of the stock's orders; merging categories combines the prices
+of matching parts weighted by shares.
 Applying a transaction adds the shares to `holdings` and adds `newMoneyIls − spentIls` to
 `cashIls`. Reverting does the opposite (removing tickers whose shares become ~0).
 
@@ -179,14 +183,28 @@ orders: the new money is added to each category's cash and is included next time
 The plan shown on the Invest page is saved in the browser (with its inputs, and a fingerprint of
 what it depends on in the categories: ids, targets, money rules, holdings and cash) until it is
 recorded or the inputs are cleared. It is saved again whenever anything in it changes, including the
-exchange rate. After a reload — which also refreshes prices — that saved plan is shown and recorded
+exchange rate. It also keeps a fingerprint of all the purchases, so a purchase recorded or undone
+since (also an older one) means nothing is restored. After a reload — which also refreshes prices — that saved plan is shown and recorded
 as it was, instead of a recalculation with new prices; the user can choose to recalculate. If the
 categories changed since (edited, deleted, merged, a backup restored…), the saved plan is not used:
 the inputs come back and the plan is made again for the categories as they are. If a purchase was
 recorded or undone since (e.g. in another tab), nothing is restored, and an open Invest page starts
 over, so the same money isn't planned and recorded twice. Plans saved by older versions (without
 these fingerprints) are restored when all their categories still exist.
-An empty fee means no fee; a negative amount, minimum order or fee stops planning with a message.
+An empty fee means no fee; a negative amount (the total or a category's), minimum order or fee
+stops planning with a message, and so does a number that can't be read ("0,5", "1000..") in the
+amount, a category's amount (unless it gets "the rest") or an option: it isn't read as empty, it
+stays as typed when the field is left (until "Reset to rules" or starting over), no plan is offered
+(not even a restored one), and the saved plan is kept while it is being corrected; emptying the total
+of the saved plan forgets it. An amount of 0 plans with the cash carried over from
+earlier purchases (only an empty amount means "not started"; the page suggests 0 only when some
+category has cash left).
+The record dialog records the plan as it was when "I made a purchase" was pressed, even if prices
+or the rate change while it is open; it closes when any purchase is recorded or undone elsewhere,
+and an added stock's price that can't be read isn't replaced by the market price. The
+"Purchase recorded" banner's Undo undoes the purchase this page recorded, and goes away once another
+purchase is the newest. Undoing warns about each stock a category now owns less of than the purchase
+gave it, adding up all the parts the purchase gave that category.
 
 ## Persistence
 
@@ -209,6 +227,13 @@ categories, purchases and settings, and the newest purchase's id — not part of
 Portfolio page shows a reminder when there is data and no backup yet, when purchases changed since
 the last backup (recorded or undone — a fingerprint of all purchase ids), or when it is 30 days old
 and anything else changed. *Later* hides it for 7 days. Deleting all data forgets the last backup.
+The fingerprint doesn't depend on the order of keys in the data (saved categories and reloaded
+ones list their fields in different orders). Open copies of the app follow each other's backups,
+and *Later* adds to the mark as stored now, so it never forgets a backup made in another copy.
+Marks saved by earlier versions (whose fingerprint depended on key order) still count. The "saved
+data couldn't be read" message goes away once the user restores a backup, loads the sample or
+deletes all data, here or in another open copy (a start-over writes `stockbalance:started-over`, so
+other copies hear of it even when the data itself doesn't change).
 
 ## Prices and FX
 
@@ -218,6 +243,9 @@ and anything else changed. *Later* hides it for 7 days. Deleting all data forget
 - On a hosted copy, Yahoo requests can go through the user's own Cloudflare Worker
   (`worker/yahoo-proxy.js`, address in `settings.yahooProxyUrl`), which forwards only
   `/v8/finance/chart/*` and adds CORS headers. Used for prices and for the `ILS=X` rate.
+  If the first request finds no proxy or forwarder (an HTML page, a 404), the other tickers aren't
+  requested. Yahoo limiting requests (429) or failing (5xx) is reported per ticker as temporary,
+  and the other tickers are still asked for.
 - Finnhub `https://finnhub.io/api/v1/quote?symbol=X&token=KEY`, price = `c` (0 means unknown). A 401
   means the key is wrong (the other tickers aren't requested); a 403 is one symbol the plan doesn't
   cover (e.g. non-US listings on the free plan) and the others are still priced.
@@ -247,18 +275,46 @@ applies to every ticker typed in the app and to saved data when it loads.
   the new category's money rule starts as "nothing by default". Past purchases stay with the
   original category.
 - Both clear the saved Invest plan, which may refer to the old categories.
+- Editing or splitting a category works from what it has when it is saved: shares and cash the
+  user didn't change in the editor are taken as stored then (a purchase recorded in another copy
+  of the app while the editor was open is kept), and saving is refused, with a message, when a
+  number the user changed was also changed elsewhere or the category was deleted or merged
+  meanwhile. A split moves only stocks the category still has.
 
 ## Stock groups
 
 A category's targets can include a group, e.g. "Corporates" 5% with AMZN and TSLA. It is stored as
 ordinary per-stock targets with a `group` label (AMZN 2.5% and TSLA 2.5%, both `group: "Corporates"`),
-and the group's target is the sum of its stocks' targets. In the category editor a group is either
-split equally (the user sets the group's percent, divided equally between its stocks) or has its
-own % per stock (e.g. AMZN 3% + TSLA 2%; the group's target is shown as their sum). Switching to
-per-stock starts from the equal parts (rounding left on the last stock); switching back keeps the
-total. A group whose saved stock targets differ opens per-stock. A stock can be moved into a group,
-out of it, or to another group; its part of the targets moves with it (its own target, or its
-equal part of an equally split group's, rounded to 0.01%), so the total doesn't change.
+and the group's target is the sum of its stocks' targets.
+
+In the category editor a group takes one line: its name, its target in the category and its stocks'
+names (with their shares when the split isn't equal). Clicking it opens the group's box, where the
+user sets the group's target in the category first, then how it is split between its stocks: equally,
+or as each stock's share of the group (e.g. AMZN 60% + TSLA 40%), which must add up to 100% (with a
+"Scale to 100%"; give or take 0.01). Saving writes each stock's target as the group's target in
+proportion to its share, so the stocks' targets always add up to the group's target. A group whose
+saved stock targets differ opens with its own split: the shares are shown rounded to 0.01% (adding
+up to exactly 100%), and the exact shares behind them count while none of them was retyped (once one
+is, the shares shown count, so the stocks' targets always add up to the group's). A group left as it
+was saved (same target, split, stocks and shares — not shares made anew by switching the split,
+scaling or moving stocks) writes back its stocks' saved targets unchanged, so opening and saving a
+category never changes them. Switching to an own split starts from the equal shares.
+In the box another single stock of the category can be moved into the group (chosen in a list, then
+"Move in"), and a stock taken out of it; the targets move with it so the category's total doesn't
+change. Moving in raises the group's target by the stock's target and keeps every stock's part of the
+category, so an equal split becomes the group's own split when the parts differ (VXUS 25% and BND
+15% → 40%, split 62.5% / 37.5%). A stock without a target joins an equal split as one more equal
+part; in an own split, or when the group has no target yet, the others keep their shares and the
+stock's share is left to set. Taking out gives the stock its part of the group's target, rounded to
+0.01%, and lowers the group's target by exactly that (the others' shares grow to fill the group
+again, unless they already add up to 100%); the last stock taken out gets the group's whole
+target, and the group is removed with any blank rows. Taking out a blank row removes only that row.
+Single stocks' targets are kept as saved too.
+Scaling targets to 100% (single stocks and groups) and splitting into shares use largest-remainder
+rounding to 0.01%, so no target ends up below 0. A number that can't be read (a stock's target,
+share or shares, or a group's target) keeps its text, and blocks saving, also while the stock list
+and a group box take turns on screen; when saving is
+refused because of something the open group box doesn't show, the box closes so it can be seen.
 
 In the plan a group is balanced as one unit. Step 1 water-fills the category's single stocks and
 groups (a group's weight is its total target, its value that of all its stocks together); a group's

@@ -125,3 +125,37 @@ test('works on a phone-sized screen', async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('groups on a phone: move stocks into a group and split it by shares of the group', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Load sample data' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Categories' }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '+ Add group' }).click();
+  const box = dialog.getByRole('group', { name: /^Group/ });
+  await box.getByLabel('Group name, group 1').fill('Abroad');
+  const moveIn = box.getByLabel("Move one of the category's stocks into the group");
+  await moveIn.selectOption({ label: 'VXUS (25%)' });
+  await box.getByRole('button', { name: 'Move in' }).click();
+  await moveIn.selectOption({ label: 'BND (15%)' });
+  await box.getByRole('button', { name: 'Move in' }).click();
+  await expect(box.getByLabel('Group target percent, group 1')).toHaveValue('40');
+  await box.getByRole('radio', { name: /My own split/ }).check();
+  await box.getByLabel('Share of the group, row 2').fill('60');
+  await box.getByLabel('Share of the group, row 3').fill('40');
+  await expect(box.getByText('Shares add up to 100%')).toBeVisible();
+  // The box fits the screen: nothing scrolls sideways.
+  const overflow = await dialog.evaluate((d) => d.scrollWidth - d.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  await box.getByRole('button', { name: 'Done' }).click();
+  await expect(dialog.getByText('VXUS 60% · BND 40%')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Save category' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('(VXUS 60%, BND 40%)')).toBeVisible();
+
+  await page.getByRole('navigation').getByRole('link', { name: 'Invest' }).click();
+  await page.getByLabel('Amount to invest in ILS').fill('10000');
+  await expect(page.getByRole('region', { name: 'Orders to place' })).toBeVisible();
+});

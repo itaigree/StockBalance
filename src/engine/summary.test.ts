@@ -107,6 +107,28 @@ describe('categoryPurchaseSummary', () => {
     expect(s.totals.leftoverUsd).toBeCloseTo(0, 9);
   });
 
+  it('shows the price of the order a category got, when a stock was bought in two orders', () => {
+    const tx: Transaction = {
+      id: 'two',
+      date: '2026-01-01T12:00:00.000Z',
+      usdIls: 3.7,
+      fxFeePercent: 0,
+      orders: [
+        { ticker: 'VT', shares: 1, priceUsd: 100 },
+        { ticker: 'VT', shares: 3, priceUsd: 200 },
+      ],
+      allocations: [
+        { categoryId: 'eitan', ticker: 'VT', shares: 1, costUsd: 100, priceUsd: 100 },
+        { categoryId: 'naveh', ticker: 'VT', shares: 3, costUsd: 600, priceUsd: 200 },
+      ],
+      cash: [{ categoryId: 'eitan', newMoneyIls: 370, spentIls: 370 }],
+    };
+    expect(categoryPurchaseSummary(eitan, [tx]).rows[0].buys.VT.priceUsd).toBe(100);
+    // Both parts in one category: the average of what it paid.
+    const both = { ...tx, allocations: tx.allocations.map((a) => ({ ...a, categoryId: 'eitan' })) };
+    expect(categoryPurchaseSummary(eitan, [both]).rows[0].buys.VT.priceUsd).toBe(175);
+  });
+
   it('shows the price that was paid when a share is split between categories', () => {
     // One $3,000 share split three ways: a's part is rounded to 0.333334 shares but costs exactly $1,000.
     const tx: Transaction = {

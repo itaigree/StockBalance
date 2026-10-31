@@ -114,6 +114,8 @@ export interface TransactionAllocation {
   ticker: string;
   shares: number;
   costUsd: number;
+  /** Price per share of the order this part comes from (missing in purchases recorded before it was kept). */
+  priceUsd?: number;
 }
 
 /** Cash effect of a transaction on one category: cashIls += newMoneyIls - spentIls. */

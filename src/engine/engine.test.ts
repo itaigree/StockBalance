@@ -461,7 +461,7 @@ describe('planPurchase', () => {
   it('warns about a category without targets and targets that do not add up', () => {
     const plan = planPurchase(input([cat('a', {}), cat('b', { B: 50 })], { B: 10 }, { a: 100, b: 100 }));
     expect(plan.warnings.join(' ')).toMatch(/a has no target stocks/);
-    expect(plan.warnings.join(' ')).toMatch(/b: the targets add up to 50.0%/);
+    expect(plan.warnings.join(' ')).toMatch(/b: the targets add up to 50.00%/);
     expect(plan.categories[0].leftoverIls).toBe(100);
   });
 });
@@ -508,7 +508,9 @@ describe('ledger', () => {
       'tx3',
     );
     expect(tx.orders.at(-1)).toEqual({ ticker: 'QQQ', shares: 2, priceUsd: 500 });
-    expect(tx.allocations.filter((a) => a.ticker === 'QQQ')).toEqual([{ categoryId: 'kids', ticker: 'QQQ', shares: 2, costUsd: 1000 }]);
+    expect(tx.allocations.filter((a) => a.ticker === 'QQQ')).toEqual([
+      { categoryId: 'kids', ticker: 'QQQ', shares: 2, costUsd: 1000, priceUsd: 500 },
+    ]);
     const kidsSpent = tx.allocations.filter((a) => a.categoryId === 'kids').reduce((s, a) => s + a.costUsd, 0);
     expect(tx.cash.find((c) => c.categoryId === 'kids')!.spentIls).toBeCloseTo(kidsSpent, 2);
     expect(() => transactionFromPlan(plan, { ...executed, orders: [{ ticker: 'QQQ', shares: 1, priceUsd: 1 }] }, 'x')).toThrow(

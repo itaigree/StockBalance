@@ -49,6 +49,11 @@ function repoint(tx: Transaction, from: string, to: string): Transaction {
     const categoryId = a.categoryId === from ? to : a.categoryId;
     const same = allocations.find((x) => x.categoryId === categoryId && x.ticker === a.ticker);
     if (same) {
+      // Keep the price paid for the two parts together (unknown if either is unknown).
+      const n = same.shares + a.shares;
+      if (same.priceUsd !== undefined && a.priceUsd !== undefined && n > 0) {
+        same.priceUsd = (same.shares * same.priceUsd + a.shares * a.priceUsd) / n;
+      } else delete same.priceUsd;
       same.shares = round(same.shares + a.shares, 9);
       same.costUsd += a.costUsd;
     } else allocations.push({ ...a, categoryId });

@@ -1,12 +1,12 @@
 import { StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../App';
 import { AppStateProvider } from '../state/AppState';
 import { describe, expect, it, vi } from 'vitest';
 import { serializeBackup } from '../data/backup';
 import { YAHOO_CSV } from '../data/importCsv.fixture';
-import { renderApp, sample, savedData } from '../test-utils';
+import { renderApp, sample, saveFromOtherCopy, savedData } from '../test-utils';
 
 const download = vi.hoisted(() => vi.fn());
 vi.mock('../data/backup', async (importOriginal) => ({
@@ -138,6 +138,74 @@ describe('import holdings', () => {
 });
 
 describe('price forwarder', () => {
+  it('shows a test result only for the address that was tested', async () => {
+    let answer: ((r: Response) => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    try {
+      const { user } = renderApp('settings', sample());
+      const address = screen.getByLabelText('Price forwarder address');
+      await user.type(address, 'https://good.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await user.type(address, '-typo');
+      await act(async () => {
+        const body = { chart: { result: [{ meta: { currency: 'USD', regularMarketPrice: 575.3 } }], error: null } };
+        answer!(new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(screen.queryByText(/Works: VOO/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('shows only the newest test, also when an older one of the same address answers late', async () => {
+    const answers: ((r: Response) => void)[] = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => answers.push(resolve))));
+    const yahoo = (price: number) =>
+      new Response(JSON.stringify({ chart: { result: [{ meta: { currency: 'USD', regularMarketPrice: price } }], error: null } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    try {
+      const { user } = renderApp('settings', sample());
+      const address = screen.getByLabelText('Price forwarder address');
+      await user.type(address, 'https://a.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await user.clear(address);
+      await user.type(address, 'https://b.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await user.clear(address);
+      await user.type(address, 'https://a.example.workers.dev');
+      await user.click(screen.getByRole('button', { name: 'Test' }));
+      await act(async () => {
+        answers[0](yahoo(1));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(screen.getByRole('button', { name: 'Testing…' })).toBeInTheDocument();
+      expect(screen.queryByText(/^Works: VOO/)).not.toBeInTheDocument();
+      await act(async () => {
+        answers[2](yahoo(575.3));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(screen.getByText('Works: VOO is $575.30.')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not show a test result once the address changed in another copy', async () => {
+    const data = sample();
+    data.settings = { ...data.settings, yahooProxyUrl: 'https://good.example.workers.dev' };
+    const { user } = renderApp('settings', data);
+    await user.click(screen.getByRole('button', { name: 'Test' }));
+    expect(await screen.findByText(/Couldn't reach your price forwarder/)).toBeInTheDocument();
+    const other = sample();
+    other.settings = { ...other.settings, yahooProxyUrl: 'https://other.example.workers.dev' };
+    saveFromOtherCopy(other);
+    expect(screen.queryByText(/Couldn't reach your price forwarder/)).not.toBeInTheDocument();
+  });
+
   it('saves the address and tests it', async () => {
     const { user } = renderApp('settings', sample());
     await user.type(screen.getByLabelText('Price forwarder address'), 'https://fwd.example.workers.dev');

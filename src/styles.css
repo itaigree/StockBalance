@@ -292,6 +292,8 @@ main {
 /* ---------- Tables ---------- */
 
 .table-wrap {
+  /* Also scrolls what is positioned inside (e.g. hidden column titles), so the page doesn't. */
+  position: relative;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppData } from '../types';
 import { emptyData } from '../data/schema';
 import { saveData } from '../data/storage';
-import { sample, savedData } from '../test-utils';
+import { sample, saveFromOtherCopy, savedData } from '../test-utils';
 import { AppStateProvider, useApp, type AppContextValue } from './AppState';
 
 /** Answers Yahoo chart requests: 3.7 for the exchange rate, 100 for any stock. */
@@ -123,5 +123,55 @@ describe('AppStateProvider', () => {
     act(() => app.current!.actions.updateSettings({ fxFeePercent: 0.5 }));
     await waitFor(() => expect(savedData().settings.fxFeePercent).toBe(0.5));
     expect(savedData().categories.find((c) => c.id === 'sample-kids')!.cashIls).toBe(999);
+  });
+});
+
+describe('a saved copy that could not be read', () => {
+  it('stops saying so once the user restores a backup or starts anew', () => {
+    window.localStorage.setItem('stockbalance:data', '{not json');
+    const app = renderProvider();
+    expect(app.current!.loadError).toMatch(/couldn't be read/);
+    act(() => app.current!.actions.startOver(sample()));
+    expect(app.current!.loadError).toBeNull();
+  });
+
+  it('stops saying so when another copy starts over, even with the same (empty) data', () => {
+    window.localStorage.setItem('stockbalance:data', '{not json');
+    const app = renderProvider();
+    expect(app.current!.loadError).toMatch(/couldn't be read/);
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'stockbalance:started-over', newValue: '2026-10-30T10:00:00.000Z' }));
+    });
+    expect(app.current!.loadError).toBeNull();
+    // And starting over here tells the other copies.
+    window.localStorage.removeItem('stockbalance:started-over');
+    act(() => app.current!.actions.startOver(emptyData()));
+    expect(window.localStorage.getItem('stockbalance:started-over')).not.toBeNull();
+  });
+
+  it('tells other copies of a start-over only once its data is saved', () => {
+    const app = renderProvider();
+    window.localStorage.removeItem('stockbalance:started-over');
+    const setItem = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === 'stockbalance:data') throw new DOMException('Full', 'QuotaExceededError');
+      setItem.call(this, key, value);
+    });
+    try {
+      act(() => app.current!.actions.startOver(sample()));
+      expect(app.current!.saveError).not.toBeNull();
+      expect(window.localStorage.getItem('stockbalance:started-over')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('stops saying so once another copy saves data that can be read', () => {
+    window.localStorage.setItem('stockbalance:data', '{not json');
+    const app = renderProvider();
+    expect(app.current!.loadError).toMatch(/couldn't be read/);
+    saveFromOtherCopy(sample());
+    expect(app.current!.loadError).toBeNull();
+    expect(app.current!.data.categories).toHaveLength(3);
   });
 });

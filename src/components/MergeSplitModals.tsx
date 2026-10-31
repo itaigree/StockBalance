@@ -127,14 +127,26 @@ export function MergeModal({ category, onClose, onDone }: { category: Category; 
 }
 
 /** Move part of a category's shares and cash into a new category. */
-export function SplitModal({ category, onClose, onDone }: { category: Category; onClose: () => void; onDone: (msg: string) => void }) {
+export function SplitModal({
+  category: opened,
+  onClose,
+  onDone,
+}: {
+  category: Category;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
   const { data, actions } = useApp();
-  const held = Object.entries(category.holdings).filter(([, n]) => n > 0);
+  // What the category has now (a purchase may be recorded in another window while this is open).
+  const now = data.categories.find((c) => c.id === opened.id);
+  const category = now ?? opened;
+  const held = now ? Object.entries(now.holdings).filter(([, n]) => n > 0) : [];
   const [name, setName] = useState('');
   const [move, setMove] = useState<Record<string, number | null>>({});
   const [cash, setCash] = useState<number | null>(0);
   const [copyTargets, setCopyTargets] = useState(true);
   const [percent, setPercent] = useState<number | null>(50);
+  const [splitError, setSplitError] = useState<string | null>(null);
   /** Fields whose text can't be read as a number (tickers, or "cash"). */
   const [unreadable, setUnreadable] = useState<Set<string>>(new Set());
   const trackReadable = (id: string) => (valid: boolean) =>
@@ -166,7 +178,7 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
     : cash !== null && (cash < 0 || cash > maxCash + 0.005)
       ? `Between ₪0 and ${fmtIls(maxCash)}.`
       : null;
-  const valid = !nameError && !cashError && held.every(([t, have]) => !rowError(t, have));
+  const valid = !!now && !nameError && !cashError && held.every(([t, have]) => !rowError(t, have));
 
   const applyPercent = () => {
     if (percent === null || percent < 0 || percent > 100) return;
@@ -191,21 +203,26 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
             disabled={!valid}
             onClick={() => {
               const color = CATEGORY_COLORS.find((c) => !data.categories.some((x) => x.color === c)) ?? CATEGORY_COLORS[0];
-              const categories = splitCategory(data.categories, {
-                sourceId: category.id,
-                newCategory: {
-                  id: newId(),
-                  name: trimmed,
-                  color,
-                  targets: copyTargets ? category.targets : [],
-                  contribution: { kind: 'none' },
-                },
-                moveShares: Object.fromEntries(Object.entries(move).map(([t, n]) => [t, n ?? 0])),
-                moveCashIls: cash ?? 0,
-              });
-              actions.replaceData({ ...data, categories });
-              clearDraft();
-              onDone(`${trimmed} was split off from ${category.name}.`);
+              try {
+                const categories = splitCategory(data.categories, {
+                  sourceId: category.id,
+                  newCategory: {
+                    id: newId(),
+                    name: trimmed,
+                    color,
+                    targets: copyTargets ? category.targets : [],
+                    contribution: { kind: 'none' },
+                  },
+                  // Only stocks it still has (one may have gone in another window since it was typed).
+                  moveShares: Object.fromEntries(held.map(([t]) => [t, move[t] ?? 0])),
+                  moveCashIls: cash ?? 0,
+                });
+                actions.replaceData({ ...data, categories });
+                clearDraft();
+                onDone(`${trimmed} was split off from ${category.name}.`);
+              } catch (e) {
+                setSplitError(e instanceof Error ? e.message : String(e));
+              }
             }}
           >
             Split
@@ -214,6 +231,16 @@ export function SplitModal({ category, onClose, onDone }: { category: Category; 
       }
     >
       <div className="stack">
+        {!now && (
+          <div className="banner error" role="alert">
+            {opened.name} was deleted or merged somewhere else, so it can't be split.
+          </div>
+        )}
+        {splitError && now && (
+          <div className="banner error" role="alert">
+            {splitError}
+          </div>
+        )}
         <label className="field">
           Name of the new category
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Naveh" autoFocus />

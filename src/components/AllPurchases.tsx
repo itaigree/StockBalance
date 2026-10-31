@@ -70,8 +70,8 @@ function TransactionCard({ tx, byId, onUndo }: { tx: Transaction; byId: Map<stri
       </div>
       {tx.orders.length === 0 && <p className="muted">Nothing was bought; the money was added to the categories' cash.</p>}
       <ul className="tx-orders">
-        {tx.orders.map((o) => (
-          <li key={o.ticker}>
+        {tx.orders.map((o, i) => (
+          <li key={`${o.ticker}-${i}`}>
             {fmtShares(o.shares)} × <span className="ticker">{o.ticker}</span> @ {fmtUsd(o.priceUsd)}
           </li>
         ))}
@@ -141,8 +141,16 @@ export function UndoModal({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  // Holdings that were changed by hand since the purchase may hold fewer shares than it added.
-  const short = tx.allocations.flatMap((a) => {
+  // Holdings that were changed by hand since the purchase may hold fewer shares than it added (all
+  // its parts together: a category can get a stock from a planned order and as an added stock).
+  const added = new Map<string, { categoryId: string; ticker: string; shares: number }>();
+  for (const a of tx.allocations) {
+    const key = `${a.categoryId}\u0000${a.ticker}`;
+    const sum = added.get(key);
+    if (sum) sum.shares += a.shares;
+    else added.set(key, { categoryId: a.categoryId, ticker: a.ticker, shares: a.shares });
+  }
+  const short = [...added.values()].flatMap((a) => {
     const c = categories.find((x) => x.id === a.categoryId);
     if (!c) return [];
     const have = c.holdings[a.ticker] ?? 0;

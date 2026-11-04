@@ -254,6 +254,28 @@ other copies hear of it even when the data itself doesn't change).
 - Any price or the FX rate can be overridden manually; manual values are kept until the next
   successful refresh of that ticker.
 
+## Checking a stock that is added (`checkTicker`)
+
+A stock added to a category in the editor (one the category didn't have when the editor opened) with
+no price known yet is checked when its ticker field is left: the app gets its price from the price
+sources in Settings (as a refresh would). Under the field it shows the price; or that no price was
+found (a source said it doesn't know the ticker, or lists it only in another currency) with up to
+four suggestions of what may have been meant, each a button that puts it in the field; or, when no
+source could be asked (offline, no proxy or forwarder, rate limits), that it couldn't be checked,
+which says nothing about the ticker. Nothing is checked when prices are set to manual.
+
+Suggestions come from Yahoo's search (`/v1/finance/search` through the local proxy or the price
+forwarder, US listings of stocks and funds only), Finnhub's symbol search when a key is set, and close
+spellings (edit distance 1 for tickers of up to 4 letters, else 2; a swap of two letters counts as
+one) among the user's own tickers and a built-in list of well-known US stocks and funds. The closest
+spellings come first; ties keep the order found (the search's own ranking, then the user's tickers,
+then the well-known ones).
+
+Saving waits for checks still running. If a new stock wasn't found, the first Save says so and is
+refused; pressing Save again keeps it as typed (e.g. a stock the sources don't cover, priced by
+hand). A stock that couldn't be checked doesn't stop saving. Stocks added in "I bought something
+different" when recording a purchase are checked the same way, without holding up recording.
+
 ## Importing holdings
 
 Settings → Import holdings reads a Yahoo Finance portfolio export (CSV). In the preview the user

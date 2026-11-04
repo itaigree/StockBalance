@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderApp, sample, saveFromOtherCopy, savedData } from '../test-utils';
 
 describe('CategoriesPage', () => {
@@ -1224,3 +1224,148 @@ describe('category editor and split: data changed in another copy', () => {
     expect(within(voo).getAllByRole('cell')[1]).toHaveTextContent('5.5');
   });
 });
+
+describe('category editor: checking a stock that is added', () => {
+  type User = ReturnType<typeof renderApp>['user'];
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const notFound = () =>
+    json({ chart: { result: null, error: { code: 'Not Found', description: 'No data found, symbol may be delisted' } } }, 404);
+  const price = (p: number) => json({ chart: { result: [{ meta: { currency: 'USD', regularMarketPrice: p } }], error: null } });
+  /** The price sources answer by URL; anything else is offline. */
+  const market = (routes: [RegExp, () => Response | Promise<Response>][]) => {
+    const fn = vi.fn(async (url: string) => {
+      for (const [re, respond] of routes) if (re.test(url)) return respond();
+      throw new TypeError('offline');
+    });
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  };
+  const newCategory = async (user: User) => {
+    await user.click(screen.getByRole('button', { name: 'Add category' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'Fun');
+    return dialog;
+  };
+  const withMarket = (fn: () => Promise<void>) => async () => {
+    try {
+      await fn();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+
+  it(
+    'says when no price is found for a stock typed, and puts in a suggestion',
+    withMarket(async () => {
+      market([
+        [/chart\/APPL\?/, notFound],
+        [
+          /search\?q=APPL/,
+          () => json({ quotes: [{ symbol: 'AAPL', quoteType: 'EQUITY', exchange: 'NMS', shortname: 'Apple Inc.' }] }),
+        ],
+      ]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'appl');
+      await user.tab();
+      expect(await within(dialog).findByText(/No price found for APPL\. Did you mean/)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Use AAPL (Apple Inc.)' }));
+      expect(within(dialog).getByLabelText('Ticker, row 1')).toHaveValue('AAPL');
+      // AAPL has a price already: nothing more to say.
+      expect(within(dialog).queryByText(/No price found/)).not.toBeInTheDocument();
+    }),
+  );
+
+  it(
+    'shows the price of a stock it found',
+    withMarket(async () => {
+      market([[/chart\/SCHD\?/, () => price(27.5)]]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'SCHD');
+      await user.tab();
+      expect(await within(dialog).findByText('SCHD is $27.50')).toBeInTheDocument();
+    }),
+  );
+
+  it(
+    'asks once before saving a stock with no price found, and keeps it when Save is pressed again',
+    withMarket(async () => {
+      market([
+        [/chart\/ZZZZ\?/, notFound],
+        [/search/, () => json({ quotes: [] })],
+      ]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'ZZZZ');
+      await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
+      expect(await within(dialog).findByText(/No price found for ZZZZ\. Check how it is written\./)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      expect(within(dialog).getByRole('alert')).toHaveTextContent(
+        'No price was found for ZZZZ. Check how it is written, or press Save again to keep it as typed.',
+      );
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(savedData().categories.at(-1)!.targets).toEqual([{ ticker: 'ZZZZ', percent: 100 }]);
+    }),
+  );
+
+  it(
+    'waits for a check still running before saving',
+    withMarket(async () => {
+      let answer: (r: Response) => void = () => {};
+      market([[/chart\/SCHD\?/, () => new Promise<Response>((resolve) => (answer = resolve))]]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'SCHD');
+      await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      expect(within(dialog).getByText('Checking the new stocks…')).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Save category' })).toBeDisabled();
+      answer(price(27.5));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(savedData().categories.at(-1)!.targets).toEqual([{ ticker: 'SCHD', percent: 100 }]);
+    }),
+  );
+
+  it('says when a stock could not be checked, and saves it anyway', async () => {
+    // Tests are offline: no price source answers.
+    const { user } = renderApp('categories', sample());
+    const dialog = await newCategory(user);
+    await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'XYZ');
+    await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
+    expect(await within(dialog).findByText("Couldn't check XYZ right now.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it(
+    'does not check the stocks a category already has, or any when prices are manual',
+    withMarket(async () => {
+      const fn = market([]);
+      const data = sample();
+      data.categories[0].holdings = { ...data.categories[0].holdings, NOPRICE: 1 };
+      const { user, unmount } = renderApp('categories', data);
+      await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+      const dialog = screen.getByRole('dialog');
+      for (const f of within(dialog).getAllByLabelText(/^Ticker, row/)) {
+        await user.click(f);
+        await user.tab();
+      }
+      expect(fn).not.toHaveBeenCalled();
+      unmount();
+
+      const manual = sample();
+      manual.settings = { ...manual.settings, priceProvider: 'manual' };
+      const r2 = renderApp('categories', manual);
+      await r2.user.click(screen.getByRole('button', { name: 'Add category' }));
+      const d2 = screen.getByRole('dialog');
+      await r2.user.type(within(d2).getByLabelText('Ticker, row 1'), 'APPL');
+      await r2.user.tab();
+      expect(fn).not.toHaveBeenCalled();
+      expect(within(d2).queryByText(/APPL/)).not.toBeInTheDocument();
+    }),
+  );
+});
+

@@ -6,6 +6,7 @@ import { newId } from '../lib/ids';
 import { fmtIls, fmtOrderShares, fmtRate, fmtUsd, isTicker, normalizeTicker } from '../lib/format';
 import { Modal } from './Modal';
 import { NumberField } from './NumberField';
+import { TickerCheckNote, useTickerChecks } from './TickerCheckNote';
 
 interface Props {
   plan: PlanResult;
@@ -47,6 +48,9 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
   const [date, setDate] = useState(todayLocal());
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** Stocks added here with no price known are checked by getting their price. */
+  const tickerChecks = useTickerChecks();
+  const needsCheck = (t: string) => isTicker(t) && data.settings.priceProvider !== 'manual' && !(t in data.prices);
   /** Added stocks whose typed price can't be read (not replaced by the market price meanwhile). */
   const [unreadablePrice, setUnreadablePrice] = useState<Set<string>>(new Set());
   const trackPrice = (key: string) => (valid: boolean) =>
@@ -253,8 +257,22 @@ export function RecordPurchaseModal({ plan, newMoneyIls, usdIls, fxFeePercent, o
                               autoCapitalize="characters"
                               spellCheck={false}
                               onChange={(e) => updateExtra(x.key, { ticker: e.target.value.toUpperCase() })}
+                              onBlur={() => {
+                                const t = normalizeTicker(x.ticker);
+                                if (needsCheck(t)) void tickerChecks.check(t);
+                              }}
                             />
                             {err && <div className="error-text">{err}</div>}
+                            {needsCheck(normalizeTicker(x.ticker)) && (
+                              <TickerCheckNote
+                                ticker={x.ticker}
+                                check={tickerChecks.checks[normalizeTicker(x.ticker)]}
+                                onUse={(t) => {
+                                  updateExtra(x.key, { ticker: t });
+                                  if (needsCheck(t)) void tickerChecks.check(t);
+                                }}
+                              />
+                            )}
                           </td>
                           <td>
                             <select

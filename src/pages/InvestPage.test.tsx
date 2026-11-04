@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { planPurchase } from '../engine';
 import { priceMap } from '../state/AppState';
 import { renderApp, sample, saveFromOtherCopy, savedData } from '../test-utils';
@@ -665,4 +665,37 @@ describe('InvestPage', () => {
     expect(screen.getByRole('region', { name: 'Orders to place' })).toBeInTheDocument();
     expect(screen.queryByText(/Pension: the targets add up to/)).not.toBeInTheDocument();
   });
+
+  it('checks a stock added when recording, and puts in a suggestion', async () => {
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (/chart\/AMZM\?/.test(url)) {
+          return json({ chart: { result: null, error: { code: 'Not Found', description: 'No data found' } } }, 404);
+        }
+        if (/search\?q=AMZM/.test(url)) {
+          return json({ quotes: [{ symbol: 'AMZN', quoteType: 'EQUITY', exchange: 'NMS', shortname: 'Amazon.com, Inc.' }] });
+        }
+        throw new TypeError('offline');
+      }),
+    );
+    try {
+      const { user } = renderApp('invest', sample());
+      await user.type(screen.getByLabelText('Amount to invest in ILS'), '10000');
+      await user.click(screen.getByRole('button', { name: 'I made a purchase' }));
+      const dialog = screen.getByRole('dialog', { name: 'Record the purchase' });
+      await user.click(within(dialog).getByLabelText('I bought something different'));
+      await user.click(within(dialog).getByRole('button', { name: '+ Add a stock I bought instead' }));
+      await user.type(within(dialog).getByLabelText('Added stock 1'), 'amzm');
+      await user.tab();
+      expect(await within(dialog).findByText(/No price found for AMZM\. Did you mean/)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Use AMZN (Amazon.com, Inc.)' }));
+      expect(within(dialog).getByLabelText('Added stock 1')).toHaveValue('AMZN');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
+

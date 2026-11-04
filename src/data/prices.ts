@@ -6,14 +6,21 @@ export interface FetchPricesResult {
   quotes: Record<string, PriceQuote>;
   /** Human-readable reason per ticker that could not be fetched. */
   failures: Record<string, string>;
+  /**
+   * Failed tickers a price source said it doesn't know ('missing') or lists only in another currency
+   * ('notUsd'), as opposed to a source that couldn't be reached or asked.
+   */
+  unknown: Record<string, UnknownTicker>;
 }
+
+export type UnknownTicker = 'missing' | 'notUsd';
 
 const CONCURRENCY = 4;
 const YAHOO_UNAVAILABLE =
   "Couldn't reach Yahoo (Yahoo prices need the app running on your computer with npm start, or a price forwarder set in Settings).";
 const FORWARDER_UNAVAILABLE = "Couldn't reach your price forwarder; check its address in Settings.";
 
-type One = { price: number } | { error: string };
+type One = { price: number } | { error: string; unknown?: UnknownTicker };
 
 /**
  * URL of the Yahoo chart API: through the user's price forwarder when one is set, otherwise
@@ -41,12 +48,13 @@ export async function fetchPrices(
   const list = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
   const quotes: Record<string, PriceQuote> = {};
   const failures: Record<string, string> = {};
-  if (list.length === 0) return { quotes, failures };
+  const unknown: Record<string, UnknownTicker> = {};
+  if (list.length === 0) return { quotes, failures, unknown };
 
   const provider = settings.priceProvider;
   if (provider === 'manual') {
     for (const t of list) failures[t] = 'Prices are set to manual in Settings.';
-    return { quotes, failures };
+    return { quotes, failures, unknown };
   }
 
   const key = settings.finnhubApiKey.trim();
@@ -59,6 +67,8 @@ export async function fetchPrices(
       if ('price' in r) quotes[t] = { priceUsd: r.price, asOf: now().toISOString(), source };
       else {
         (reasons[t] ??= []).push(r.error);
+        // The first source's word counts (Yahoo's "lists it in GBp" says more than Finnhub's "unknown").
+        if (r.unknown && !unknown[t]) unknown[t] = r.unknown;
         stillMissing.push(t);
       }
     });
@@ -83,7 +93,7 @@ export async function fetchPrices(
     }
     failures[t] = why || 'Unknown error.';
   }
-  return { quotes, failures };
+  return { quotes, failures, unknown };
 }
 
 /**
@@ -111,13 +121,16 @@ async function yahooOne(
   const error = pick(r.json, 'chart', 'error');
   if (error) {
     const description = pick(error, 'description');
-    return { error: `Yahoo: ${typeof description === 'string' && description ? description : 'unknown symbol'}.` };
+    return {
+      error: `Yahoo: ${typeof description === 'string' && description ? description : 'unknown symbol'}.`,
+      unknown: 'missing',
+    };
   }
   const meta = pick(r.json, 'chart', 'result', 0, 'meta');
   if (meta === undefined) return { error: `Yahoo answered with an unexpected response (HTTP ${r.status}).` };
   const currency = pick(meta, 'currency');
   if (typeof currency === 'string' && currency.toUpperCase() !== 'USD') {
-    return { error: `Yahoo lists this stock in ${currency}; only USD stocks are supported.` };
+    return { error: `Yahoo lists this stock in ${currency}; only USD stocks are supported.`, unknown: 'notUsd' };
   }
   const price = positiveNumber(pick(meta, 'regularMarketPrice'));
   return price !== null ? { price } : { error: 'Yahoo returned no price.' };
@@ -133,7 +146,9 @@ async function yahooPrices(tickers: string[], proxyUrl: string, fetchImpl: Fetch
   const first = await yahooOne(tickers[0], proxyUrl, fetchImpl, timeoutMs);
   if ('unavailable' in first && first.unavailable) return tickers.map(() => ({ error: unavailableMessage(proxyUrl) }));
   const rest = await mapLimit(tickers.slice(1), CONCURRENCY, (t) => yahooOne(t, proxyUrl, fetchImpl, timeoutMs));
-  return [first, ...rest].map((r) => ('price' in r ? { price: r.price } : { error: r.error }));
+  return [first, ...rest].map((r) =>
+    'price' in r ? { price: r.price } : { error: r.error, ...(r.unknown ? { unknown: r.unknown } : {}) },
+  );
 }
 
 async function finnhubPrices(tickers: string[], key: string, fetchImpl: FetchFn, timeoutMs: number): Promise<One[]> {
@@ -156,6 +171,6 @@ async function finnhubPrices(tickers: string[], key: string, fetchImpl: FetchFn,
     const apiError = pick(r.json, 'error');
     if (typeof apiError === 'string') return { error: `Finnhub: ${apiError}` };
     const price = positiveNumber(pick(r.json, 'c'));
-    return price !== null ? { price } : { error: "Finnhub doesn't know this symbol." };
+    return price !== null ? { price } : { error: "Finnhub doesn't know this symbol.", unknown: 'missing' };
   });
 }

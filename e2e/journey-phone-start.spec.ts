@@ -411,6 +411,9 @@ async function makeCategoriesByHand(
   if (shares) await kids.getByLabel('Shares owned, row 2').fill(shares.SCHD);
   await kids.getByLabel('How this category gets money').selectOption('fixed');
   await kids.getByLabel('Fixed amount in ILS').fill('1500');
+  // The stub has no price for SCHD: saving asks once, and the user keeps it (they'll type its price).
+  await kids.getByRole('button', { name: 'Save category' }).click();
+  await expect(kids.getByRole('alert')).toContainText('No price was found for SCHD');
   await kids.getByRole('button', { name: 'Save category' }).click();
   await expect(kids).toBeHidden();
   await expect(page.getByText('VXUS 80%')).toBeVisible();

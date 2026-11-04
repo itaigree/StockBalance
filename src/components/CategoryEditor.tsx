@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Category, ContributionRule } from '../types';
 import { useApp } from '../state/AppState';
 import { apportion } from '../engine/apportion';
@@ -8,6 +8,7 @@ import { fmtPercent, isTicker, normalizeTicker, parseNumber } from '../lib/forma
 import { RULE_EXPLANATION } from '../lib/rules';
 import { Modal } from './Modal';
 import { NumberField } from './NumberField';
+import { TickerCheckNote, useTickerChecks } from './TickerCheckNote';
 import './CategoryEditor.css';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -177,6 +178,20 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const [submitted, setSubmitted] = useState(false);
   /** Why saving was refused although every field is fine (the category changed somewhere else). */
   const [conflict, setConflict] = useState<string | null>(null);
+  /** Checks of the stocks added here, by getting their price (see needsCheck). */
+  const tickerChecks = useTickerChecks();
+  /** Stocks no price was found for that the user chose to keep (Save pressed again). */
+  const [keepUnknown, setKeepUnknown] = useState<Set<string>>(new Set());
+  const [unknownWarning, setUnknownWarning] = useState<string | null>(null);
+  /** Saving waits for the checks of new stocks still running. */
+  const [checkingToSave, setCheckingToSave] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [moveChoice, setMoveChoice] = useState('');
   const moveSelect = useRef<HTMLSelectElement>(null);
   const boxAddStock = useRef<HTMLButtonElement>(null);
@@ -481,6 +496,21 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     setRows((rs) => rs.map((r) => (r.group !== g.key ? r : withShare(r, equal ? null : (byKey.get(r.key) ?? null)))));
   };
 
+  /**
+   * A stock added here (not in the category when the editor opened) with no price known yet: it is
+   * checked by getting its price, unless prices are entered by hand.
+   */
+  const needsCheck = (t: string) =>
+    isTicker(t) &&
+    data.settings.priceProvider !== 'manual' &&
+    !(t in data.prices) &&
+    !(opened && (t in opened.holdings || opened.targets.some((x) => x.ticker === t)));
+  /** Put a suggested ticker in a row (and check it). */
+  const takeSuggestion = (r: Row, t: string) => {
+    updateRow(r.key, { ticker: t });
+    if (needsCheck(t)) void tickerChecks.check(t);
+  };
+
   /** Errors the open group box doesn't show: those of the single stocks and of other groups. */
   const hiddenByBox = (g: Group) =>
     single.some((r) => errors.rows[r.key]) ||
@@ -495,6 +525,35 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       if (editing && hiddenByBox(editing) && !boxHasErrors(editing)) setOpenGroup(null);
       return;
     }
+    // Stocks added here are checked by getting their price: wait for the checks still running, then
+    // say once which weren't found (pressing Save again keeps them as typed).
+    const added = [...new Set(filled.map((r) => normalizeTicker(r.ticker)).filter(needsCheck))];
+    const running = added.filter((t) => {
+      const c = tickerChecks.get(t);
+      return !c || c === 'checking';
+    });
+    if (running.length > 0) {
+      setCheckingToSave(true);
+      void Promise.all(running.map((t) => tickerChecks.check(t))).then(() => {
+        if (!mounted.current) return;
+        setCheckingToSave(false);
+        saveRef.current();
+      });
+      return;
+    }
+    const notFound = added.filter((t) => {
+      const c = tickerChecks.get(t);
+      return c !== undefined && c !== 'checking' && c.status === 'notFound' && !keepUnknown.has(t);
+    });
+    if (notFound.length > 0) {
+      setKeepUnknown((s) => new Set([...s, ...notFound]));
+      const one = notFound.length === 1;
+      setUnknownWarning(
+        `No price was found for ${notFound.join(', ')}. Check how ${one ? 'it is' : 'they are'} written, or press Save again to keep ${one ? 'it' : 'them'} as typed.`,
+      );
+      return;
+    }
+    setUnknownWarning(null);
     const contribution: ContributionRule =
       ruleKind === 'fixed'
         ? { kind: 'fixed', amountIls: fixedAmount! }
@@ -566,6 +625,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     });
   };
 
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
   const show = (msg?: string) => (submitted && msg ? <span className="error-text">{msg}</span> : null);
 
   const removeRow = (r: Row) =>
@@ -586,8 +648,19 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         autoCapitalize="characters"
         spellCheck={false}
         onChange={(e) => updateRow(r.key, { ticker: e.target.value.toUpperCase() })}
+        onBlur={() => {
+          const t = normalizeTicker(r.ticker);
+          if (needsCheck(t)) void tickerChecks.check(t);
+        }}
       />
       {show(errors.rows[r.key])}
+      {needsCheck(normalizeTicker(r.ticker)) && (
+        <TickerCheckNote
+          ticker={r.ticker}
+          check={tickerChecks.checks[normalizeTicker(r.ticker)]}
+          onUse={(t) => takeSuggestion(r, t)}
+        />
+      )}
     </>
   );
   const sharesInput = (r: Row, i: number) => (
@@ -863,10 +936,16 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
               {conflict}
             </span>
           )}
+          {checkingToSave && <span className="muted spacer">Checking the new stocks…</span>}
+          {unknownWarning && valid && !conflict && !checkingToSave && (
+            <span className="warn-text spacer" role="alert">
+              {unknownWarning}
+            </span>
+          )}
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" form="category-form">
+          <button type="submit" form="category-form" disabled={checkingToSave}>
             Save category
           </button>
         </>

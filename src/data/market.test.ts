@@ -128,7 +128,7 @@ describe('fetchPrices', () => {
 
   it('makes no requests in manual mode or for an empty list', async () => {
     const { fn, calls } = router([]);
-    expect(await fetchPrices([], settings(), fn, NOW)).toEqual({ quotes: {}, failures: {} });
+    expect(await fetchPrices([], settings(), fn, NOW)).toEqual({ quotes: {}, failures: {}, unknown: {} });
     const r = await fetchPrices(['A'], settings({ priceProvider: 'manual' }), fn, NOW);
     expect(r.failures.A).toMatch(/manual/);
     expect(calls).toHaveLength(0);

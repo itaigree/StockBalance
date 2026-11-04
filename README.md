@@ -4,7 +4,9 @@ A personal app to keep track of your stocks by category, and to calculate **what
 you invest so that every category stays balanced the way you want.
 
 - **Categories** (e.g. Pension, Kids, Investments): each has target weights for its stocks
-  (e.g. VOO 60%, VXUS 25%, BND 15%) and tracks how many shares it owns.
+  (e.g. VOO 60%, VXUS 25%, BND 15%) and tracks how many shares it owns. A stock you add is checked
+  by getting its price; if none is found, the app says so and suggests what you may have meant
+  (e.g. AAPL for APPL).
 - **One broker account.** Categories are labels you keep in the app. The same stock can belong
   to several categories, and a category can own part of a share.
 - **Invest.** Enter how much money (₪) you have. The app splits it between categories using your
@@ -71,7 +73,9 @@ on the other.
 On the hosted copy, Finnhub's free key only covers US stocks. To get prices for any stock Yahoo
 Finance knows, including London-listed ones like `MXWO.L`, set up your own free price forwarder.
 It's a tiny Cloudflare Worker that fetches prices from Yahoo for the app
-([`worker/yahoo-proxy.js`](worker/yahoo-proxy.js)). It only forwards price requests, nothing else.
+([`worker/yahoo-proxy.js`](worker/yahoo-proxy.js)). It only forwards price requests, and Yahoo
+searches used to suggest the right ticker when one is mistyped; nothing else. (If you set one up
+before suggestions were added, replace its code with the current file to get them.)
 
 1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com/sign-up).
 2. Go to **Workers & Pages → Create → Create Worker** (start from "Hello World"), name it e.g.

@@ -172,7 +172,10 @@ test('a stock typed wrong gets a suggestion, and the one put in shows its price 
   await dialog.getByRole('button', { name: /^Use AAPL/ }).click();
   await expect(dialog.getByLabel('Ticker, row 1')).toHaveValue('AAPL');
   await dialog.getByLabel('Target percent, row 1').click();
-  await expect(dialog.getByText('AAPL is $235.40')).toBeVisible();
+  await expect(dialog.getByText('$235.40')).toBeVisible();
+  // The short note stays on one line under the ticker (nothing below moves when it changes).
+  const note = dialog.locator('.ticker-note').first();
+  expect((await note.boundingBox())!.height).toBeLessThan(24);
   const overflow = await dialog.evaluate((d) => d.scrollWidth - d.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await dialog.getByRole('button', { name: 'Save category' }).click();

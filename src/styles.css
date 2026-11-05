@@ -234,6 +234,9 @@ main {
 .ticker-note .link-button {
   font-weight: 600;
 }
+.ticker-note.one-line {
+  white-space: nowrap;
+}
 .bad-text {
   color: var(--bad);
 }

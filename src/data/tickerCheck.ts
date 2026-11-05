@@ -1,4 +1,4 @@
-import type { AppData, Settings } from '../types';
+import type { AppData, PriceQuote, Settings } from '../types';
 import { isTicker, normalizeTicker } from '../lib/format';
 import { DEFAULT_TIMEOUT_MS, defaultFetch, getJson, pick, type FetchFn } from './http';
 import { POPULAR_TICKERS } from './popularTickers';
@@ -15,9 +15,10 @@ export interface TickerSuggestion {
  * currency), with suggestions; or that it couldn't be checked (no source reachable, prices manual).
  */
 export type TickerCheck =
-  | { status: 'ok'; priceUsd: number }
+  | { status: 'ok'; priceUsd: number; quote: PriceQuote }
   | { status: 'notFound'; reason: string; suggestions: TickerSuggestion[] }
-  | { status: 'unchecked'; reason: string };
+  /** Suggestions here are close spellings of a ticker the app doesn't know, as a hint only. */
+  | { status: 'unchecked'; reason: string; suggestions: TickerSuggestion[] };
 
 const MAX_SUGGESTIONS = 4;
 /** Yahoo's codes for US exchanges (Nasdaq, NYSE, NYSE American, NYSE Arca, Cboe). */
@@ -38,12 +39,20 @@ export async function checkTicker(
 ): Promise<TickerCheck> {
   const t = normalizeTicker(ticker);
   if (settings.priceProvider === 'manual')
-    return { status: 'unchecked', reason: 'Prices are set to manual in Settings.' };
+    return { status: 'unchecked', reason: 'Prices are set to manual in Settings.', suggestions: [] };
   const r = await fetchPrices([t], settings, fetchImpl, undefined, timeoutMs);
   const quote = r.quotes[t];
-  if (quote) return { status: 'ok', priceUsd: quote.priceUsd };
+  if (quote) return { status: 'ok', priceUsd: quote.priceUsd, quote };
   const unknown = r.unknown[t];
-  if (!unknown) return { status: 'unchecked', reason: r.failures[t] ?? 'Unknown error.' };
+  if (!unknown) {
+    // No source could say: close spellings of a ticker the app doesn't know at all, as a hint.
+    const known = POPULAR_TICKERS[t] !== undefined || own.some((o) => normalizeTicker(o) === t);
+    return {
+      status: 'unchecked',
+      reason: r.failures[t] ?? 'Unknown error.',
+      suggestions: known ? [] : closeSpellings(t, own).slice(0, MAX_SUGGESTIONS),
+    };
+  }
   return {
     status: 'notFound',
     reason: unknown === 'notUsd' ? r.failures[t] : `No price found for ${t}.`,
@@ -85,8 +94,9 @@ export function closeSpellings(ticker: string, own: string[] = []): TickerSugges
   const candidates = new Map<string, string | undefined>();
   for (const o of own) candidates.set(normalizeTicker(o), POPULAR_TICKERS[normalizeTicker(o)]);
   for (const [p, name] of Object.entries(POPULAR_TICKERS)) if (!candidates.has(p)) candidates.set(p, name);
+  // Also the same ticker with an exchange or share-class ending left out (MXWO → MXWO.L, BRK → BRK.B).
   return [...candidates]
-    .filter(([c]) => c !== t && distance(t, c) <= most)
+    .filter(([c]) => c !== t && (distance(t, c) <= most || c.startsWith(`${t}.`)))
     .map(([c, name]) => ({ ticker: c, ...(name ? { name } : {}) }));
 }
 

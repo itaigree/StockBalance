@@ -414,8 +414,11 @@ async function makeCategoriesByHand(
   // The stub has no price for SCHD: saving asks once, and the user keeps it (they'll type its price).
   await kids.getByRole('button', { name: 'Save category' }).click();
   await expect(kids.getByRole('alert')).toContainText('No price was found for SCHD');
-  await kids.getByRole('button', { name: 'Save category' }).click();
-  await expect(kids).toBeHidden();
+  // Pressed again after reading it (a double-click's second click doesn't count as an answer).
+  await expect(async () => {
+    await kids.getByRole('button', { name: 'Save category' }).click();
+    await expect(kids).toBeHidden({ timeout: 500 });
+  }).toPass();
   await expect(page.getByText('VXUS 80%')).toBeVisible();
   await expectNoSidewaysScroll(page, 'Categories');
 

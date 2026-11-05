@@ -69,41 +69,56 @@ export function TickerCheckNote({
       </div>
     );
   const t = normalizeTicker(ticker);
-  if (check === 'checking') return <div className="muted small-text ticker-note">Checking {t}…</div>;
-  if (check.status === 'ok')
-    return <div className="good-text small-text ticker-note">{`${t} is ${fmtUsd(check.priceUsd)}`}</div>;
+  // Short words on one line (a narrow column on a phone), with the whole sentence for screen readers.
+  if (check === 'checking') {
+    return (
+      <div className="muted small-text ticker-note one-line">
+        Checking…<span className="visually-hidden"> the price of {t}</span>
+      </div>
+    );
+  }
+  if (check.status === 'ok') {
+    return (
+      <div className="good-text small-text ticker-note one-line">
+        <span aria-hidden="true">✓ </span>
+        {fmtUsd(check.priceUsd)}
+        <span className="visually-hidden"> is the price of {t}</span>
+      </div>
+    );
+  }
+  const suggestions =
+    check.suggestions.length > 0 ? (
+      <>
+        {' '}
+        Did you mean{' '}
+        {check.suggestions.map((s, i) => (
+          <span key={s.ticker}>
+            {i > 0 && (i === check.suggestions.length - 1 ? ' or ' : ', ')}
+            <button
+              type="button"
+              className="link-button"
+              aria-label={`Use ${s.ticker}${s.name ? ` (${s.name})` : ''}`}
+              onClick={() => onUse(s.ticker)}
+            >
+              {s.ticker}
+            </button>
+            {s.name && <span className="muted"> ({s.name})</span>}
+          </span>
+        ))}
+        ?
+      </>
+    ) : null;
   if (check.status === 'unchecked') {
     return (
-      <div className="muted small-text ticker-note" title={check.reason}>
-        Couldn't check {t} right now.
+      <div className={`muted small-text ticker-note${suggestions ? '' : ' one-line'}`} title={check.reason}>
+        Not checked<span className="visually-hidden">: couldn't check {t} right now</span>.{suggestions}
       </div>
     );
   }
   return (
     <div className="warn-text small-text ticker-note" role="status">
-      {check.reason}{' '}
-      {check.suggestions.length > 0 ? (
-        <>
-          Did you mean{' '}
-          {check.suggestions.map((s, i) => (
-            <span key={s.ticker}>
-              {i > 0 && (i === check.suggestions.length - 1 ? ' or ' : ', ')}
-              <button
-                type="button"
-                className="link-button"
-                aria-label={`Use ${s.ticker}${s.name ? ` (${s.name})` : ''}`}
-                onClick={() => onUse(s.ticker)}
-              >
-                {s.ticker}
-              </button>
-              {s.name && <span className="muted"> ({s.name})</span>}
-            </span>
-          ))}
-          ?
-        </>
-      ) : (
-        'Check how it is written.'
-      )}
+      {check.reason}
+      {suggestions ?? ' Check how it is written.'}
     </div>
   );
 }

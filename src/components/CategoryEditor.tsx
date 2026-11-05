@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Category, ContributionRule } from '../types';
+import type { Category, ContributionRule, PriceQuote } from '../types';
 import { useApp } from '../state/AppState';
 import { apportion } from '../engine/apportion';
 import { offBy001 } from '../engine/targets';
@@ -154,7 +154,7 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
 
 /** Create or edit a category: name, color, contribution rule, cash, and its stocks (target % and shares owned). */
 export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
-  const { data } = useApp();
+  const { data, actions } = useApp();
   /** The category as it was when the editor opened (the page may pass a newer one later). */
   const [opened] = useState(category);
   const [name, setName] = useState(category?.name ?? '');
@@ -180,11 +180,17 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const [conflict, setConflict] = useState<string | null>(null);
   /** Checks of the stocks added here, by getting their price (see needsCheck). */
   const tickerChecks = useTickerChecks();
-  /** Stocks no price was found for that the user chose to keep (Save pressed again). */
+  /** Stocks no price was found for that saving asked about (pressing Save again keeps them). */
   const [keepUnknown, setKeepUnknown] = useState<Set<string>>(new Set());
-  const [unknownWarning, setUnknownWarning] = useState<string | null>(null);
-  /** Saving waits for the checks of new stocks still running. */
+  /** When saving last asked about them: a double-click's second click doesn't answer the question. */
+  const askedAt = useRef(0);
+  /** Saving waits for the checks of new stocks still running (also read at once, through the ref). */
   const [checkingToSave, setCheckingToSave] = useState(false);
+  const checkingRef = useRef(false);
+  const setChecking = (on: boolean) => {
+    checkingRef.current = on;
+    setCheckingToSave(on);
+  };
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -505,11 +511,26 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     data.settings.priceProvider !== 'manual' &&
     !(t in data.prices) &&
     !(opened && (t in opened.holdings || opened.targets.some((x) => x.ticker === t)));
-  /** Put a suggested ticker in a row (and check it). */
+  /** Put a suggested ticker in a row (and check it); the keyboard goes back to its field. */
   const takeSuggestion = (r: Row, t: string) => {
     updateRow(r.key, { ticker: t });
     if (needsCheck(t)) void tickerChecks.check(t);
+    document.getElementById(`ticker-${r.key}`)?.focus();
   };
+  /** The stocks saving keeps (a single one with neither a target nor shares is left out). */
+  const keptRows = filled.filter((r) => (r.group ? !!groupOfRow(r) : (r.percent ?? 0) > 0 || (r.shares ?? 0) > 0));
+  /** Stocks added here that saving keeps, to be checked (see needsCheck). */
+  const added = [...new Set(keptRows.map((r) => normalizeTicker(r.ticker)).filter(needsCheck))];
+  const noPriceFound = (t: string) => {
+    const c = tickerChecks.get(t);
+    return c !== undefined && c !== 'checking' && c.status === 'notFound';
+  };
+  /** Stocks with no price found that saving asked about and that are still here. */
+  const askedUnknown = added.filter((t) => keepUnknown.has(t) && noPriceFound(t));
+  /** Everything the form holds: a save that waited for checks goes ahead only if it didn't change. */
+  const formKey = JSON.stringify([name, color, ruleKind, fixedAmount, percent, cash, notes, rows, groups, unreadable]);
+  const formKeyRef = useRef(formKey);
+  formKeyRef.current = formKey;
 
   /** Errors the open group box doesn't show: those of the single stocks and of other groups. */
   const hiddenByBox = (g: Group) =>
@@ -518,6 +539,8 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const boxHasErrors = (g: Group) => !!errors.groups[g.key] || membersOf(g).some((r) => errors.rows[r.key]);
 
   const save = () => {
+    // A second click while checks run, or right after saving asked about a stock, does nothing.
+    if (checkingRef.current || Date.now() - askedAt.current < 700) return;
     setSubmitted(true);
     setConflict(null);
     if (!valid) {
@@ -525,35 +548,29 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       if (editing && hiddenByBox(editing) && !boxHasErrors(editing)) setOpenGroup(null);
       return;
     }
-    // Stocks added here are checked by getting their price: wait for the checks still running, then
-    // say once which weren't found (pressing Save again keeps them as typed).
-    const added = [...new Set(filled.map((r) => normalizeTicker(r.ticker)).filter(needsCheck))];
+    // Stocks added here are checked by getting their price: wait for the checks still running (and
+    // save then only if nothing was changed meanwhile), then ask once about those with no price found
+    // (pressing Save again keeps them as typed).
     const running = added.filter((t) => {
       const c = tickerChecks.get(t);
       return !c || c === 'checking';
     });
     if (running.length > 0) {
-      setCheckingToSave(true);
+      setChecking(true);
+      const keyAtSave = formKey;
       void Promise.all(running.map((t) => tickerChecks.check(t))).then(() => {
         if (!mounted.current) return;
-        setCheckingToSave(false);
-        saveRef.current();
+        setChecking(false);
+        if (formKeyRef.current === keyAtSave) saveRef.current();
       });
       return;
     }
-    const notFound = added.filter((t) => {
-      const c = tickerChecks.get(t);
-      return c !== undefined && c !== 'checking' && c.status === 'notFound' && !keepUnknown.has(t);
-    });
+    const notFound = added.filter((t) => noPriceFound(t) && !keepUnknown.has(t));
     if (notFound.length > 0) {
       setKeepUnknown((s) => new Set([...s, ...notFound]));
-      const one = notFound.length === 1;
-      setUnknownWarning(
-        `No price was found for ${notFound.join(', ')}. Check how ${one ? 'it is' : 'they are'} written, or press Save again to keep ${one ? 'it' : 'them'} as typed.`,
-      );
+      askedAt.current = Date.now();
       return;
     }
-    setUnknownWarning(null);
     const contribution: ContributionRule =
       ruleKind === 'fixed'
         ? { kind: 'fixed', amountIls: fixedAmount! }
@@ -596,6 +613,13 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       holdings = merged;
       if (cashIls === opened.cashIls) cashIls = now.cashIls;
     }
+    // The prices found checking the stocks added (so they aren't fetched again right away).
+    const found: Record<string, PriceQuote> = {};
+    for (const t of added) {
+      const c = tickerChecks.get(t);
+      if (c && c !== 'checking' && c.status === 'ok') found[t] = c.quote;
+    }
+    if (Object.keys(found).length > 0) actions.addPrices(found);
     const trimmedNotes = notes.trim();
     onSave({
       id: category?.id ?? newId(),
@@ -647,6 +671,7 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         placeholder={placeholder}
         autoCapitalize="characters"
         spellCheck={false}
+        id={`ticker-${r.key}`}
         onChange={(e) => updateRow(r.key, { ticker: e.target.value.toUpperCase() })}
         onBlur={() => {
           const t = normalizeTicker(r.ticker);
@@ -937,15 +962,17 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
             </span>
           )}
           {checkingToSave && <span className="muted spacer">Checking the new stocks…</span>}
-          {unknownWarning && valid && !conflict && !checkingToSave && (
+          {askedUnknown.length > 0 && valid && !conflict && !checkingToSave && (
             <span className="warn-text spacer" role="alert">
-              {unknownWarning}
+              No price was found for {askedUnknown.join(', ')}. Check how{' '}
+              {askedUnknown.length === 1 ? 'it is' : 'they are'} written, or press Save again to keep{' '}
+              {askedUnknown.length === 1 ? 'it' : 'them'} as typed.
             </span>
           )}
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" form="category-form" disabled={checkingToSave}>
+          <button type="submit" form="category-form">
             Save category
           </button>
         </>

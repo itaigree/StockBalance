@@ -1252,6 +1252,7 @@ describe('category editor: checking a stock that is added', () => {
       await fn();
     } finally {
       vi.unstubAllGlobals();
+      vi.restoreAllMocks();
     }
   };
 
@@ -1285,7 +1286,7 @@ describe('category editor: checking a stock that is added', () => {
       const dialog = await newCategory(user);
       await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'SCHD');
       await user.tab();
-      expect(await within(dialog).findByText('SCHD is $27.50')).toBeInTheDocument();
+      expect(await within(dialog).findByText('$27.50')).toHaveTextContent('✓ $27.50 is the price of SCHD');
     }),
   );
 
@@ -1305,6 +1306,12 @@ describe('category editor: checking a stock that is added', () => {
       expect(within(dialog).getByRole('alert')).toHaveTextContent(
         'No price was found for ZZZZ. Check how it is written, or press Save again to keep it as typed.',
       );
+      // A quick second click (a double-click) doesn't answer the question.
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      // Pressed again a moment later, it keeps the stock.
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now + 2000);
       await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
       expect(savedData().categories.at(-1)!.targets).toEqual([{ ticker: 'ZZZZ', percent: 100 }]);
@@ -1322,10 +1329,11 @@ describe('category editor: checking a stock that is added', () => {
       await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
       await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
       expect(within(dialog).getByText('Checking the new stocks…')).toBeInTheDocument();
-      expect(within(dialog).getByRole('button', { name: 'Save category' })).toBeDisabled();
       answer(price(27.5));
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
       expect(savedData().categories.at(-1)!.targets).toEqual([{ ticker: 'SCHD', percent: 100 }]);
+      // The price found is kept (not fetched again).
+      expect(savedData().prices.SCHD).toMatchObject({ priceUsd: 27.5, source: 'yahoo' });
     }),
   );
 
@@ -1335,7 +1343,7 @@ describe('category editor: checking a stock that is added', () => {
     const dialog = await newCategory(user);
     await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'XYZ');
     await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
-    expect(await within(dialog).findByText("Couldn't check XYZ right now.")).toBeInTheDocument();
+    expect(await within(dialog).findByText('Not checked.')).toHaveTextContent("Not checked: couldn't check XYZ right now.");
     await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
@@ -1365,6 +1373,76 @@ describe('category editor: checking a stock that is added', () => {
       await r2.user.tab();
       expect(fn).not.toHaveBeenCalled();
       expect(within(d2).queryByText(/APPL/)).not.toBeInTheDocument();
+    }),
+  );
+
+  it(
+    'does not save what was changed while it waited for a check',
+    withMarket(async () => {
+      let answer: (r: Response) => void = () => {};
+      market([[/chart\/SCHD\?/, () => new Promise<Response>((resolve) => (answer = resolve))]]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'SCHD');
+      await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await user.type(within(dialog).getByLabelText('Notes (optional)'), 'half');
+      answer(price(27.5));
+      expect(await within(dialog).findByText('$27.50')).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(savedData().categories.map((c) => c.name)).not.toContain('Fun');
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(savedData().categories.at(-1)).toMatchObject({ name: 'Fun', notes: 'half' });
+    }),
+  );
+
+  it(
+    'stops asking about a stock once it is corrected, and never about one that is not kept',
+    withMarket(async () => {
+      market([
+        [/chart\/ZZZZ\?/, notFound],
+        [/chart\/SCHD\?/, () => price(27.5)],
+        [/search/, () => json({ quotes: [] })],
+      ]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'ZZZZ');
+      await user.type(within(dialog).getByLabelText('Target percent, row 1'), '100');
+      await within(dialog).findByText(/No price found for ZZZZ/);
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      expect(within(dialog).getByRole('alert')).toHaveTextContent('No price was found for ZZZZ');
+      const ticker = within(dialog).getByLabelText('Ticker, row 1');
+      await user.clear(ticker);
+      await user.type(ticker, 'SCHD');
+      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+
+      // A ticker with neither a target nor shares isn't kept, so it isn't asked about either.
+      await user.click(within(dialog).getByRole('button', { name: '+ Add stock' }));
+      await user.type(within(dialog).getByLabelText('Ticker, row 2'), 'ZZZZ');
+      await user.tab();
+      await within(dialog).findByText(/No price found for ZZZZ/);
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+      await user.click(within(dialog).getByRole('button', { name: 'Save category' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(savedData().categories.at(-1)!.targets).toEqual([{ ticker: 'SCHD', percent: 100 }]);
+    }),
+  );
+
+  it(
+    'keeps the keyboard in the ticker field after a suggestion is used',
+    withMarket(async () => {
+      market([
+        [/chart\/MSTF\?/, notFound],
+        [/search/, () => json({ quotes: [{ symbol: 'MSFT', quoteType: 'EQUITY', exchange: 'NMS', shortname: 'Microsoft' }] })],
+        [/chart\/MSFT\?/, () => price(500)],
+      ]);
+      const { user } = renderApp('categories', sample());
+      const dialog = await newCategory(user);
+      await user.type(within(dialog).getByLabelText('Ticker, row 1'), 'MSTF');
+      await user.tab();
+      await user.click(await within(dialog).findByRole('button', { name: 'Use MSFT (Microsoft)' }));
+      expect(within(dialog).getByLabelText('Ticker, row 1')).toHaveFocus();
     }),
   );
 });

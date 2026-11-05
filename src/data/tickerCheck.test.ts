@@ -33,7 +33,11 @@ function router(routes: [RegExp, (url: string) => Response][]) {
 describe('checkTicker', () => {
   it('gives the price of a ticker a source knows', async () => {
     const { fn } = router([[/chart\/SCHD\?/, () => yahooPrice(27.5)]]);
-    expect(await checkTicker('schd', settings(), [], fn)).toEqual({ status: 'ok', priceUsd: 27.5 });
+    expect(await checkTicker('schd', settings(), [], fn)).toMatchObject({
+      status: 'ok',
+      priceUsd: 27.5,
+      quote: { priceUsd: 27.5, source: 'yahoo' },
+    });
   });
 
   it('says when no source knows a ticker, and suggests US stocks and funds, the closest first', async () => {
@@ -135,8 +139,59 @@ describe('checkTicker', () => {
     expect(await checkTicker('APPL', settings({ priceProvider: 'manual' }), [], manual.fn)).toEqual({
       status: 'unchecked',
       reason: 'Prices are set to manual in Settings.',
+      suggestions: [],
     });
     expect(manual.calls).toHaveLength(0);
+  });
+});
+
+describe('checkTicker after the review', () => {
+  const chartError = (status: number, code: string) => () =>
+    json({ chart: { result: null, error: { code, description: 'something' } } }, status);
+
+  it('says a ticker is not known only when Yahoo answers "Not Found"', async () => {
+    for (const [status, code] of [
+      [500, 'Internal Server Error'],
+      [401, 'Unauthorized'],
+      [503, 'Service Unavailable'],
+    ] as const) {
+      const { fn } = router([
+        [/chart/, chartError(status, code)],
+        [/search/, () => yahooSearch([])],
+      ]);
+      expect((await checkTicker('AAPL', settings(), [], fn)).status).toBe('unchecked');
+    }
+    const { fn } = router([
+      [/chart/, chartError(404, 'Not Found')],
+      [/search/, () => yahooSearch([])],
+    ]);
+    expect((await checkTicker('ZZZZ', settings(), [], fn)).status).toBe('notFound');
+  });
+
+  it("doesn't let Finnhub decide while Yahoo can't answer for now", async () => {
+    const { fn } = router([
+      [/chart/, () => new Response('Too Many Requests', { status: 429 })],
+      [/finnhub\.io\/api\/v1\/quote/, () => json({ c: 0, d: null, dp: null, h: 0, l: 0, o: 0, pc: 0, t: 0 })],
+    ]);
+    expect((await checkTicker('VFIAX', settings({ finnhubApiKey: 'k' }), [], fn)).status).toBe('unchecked');
+    // Without a Yahoo to ask (static hosting), Finnhub's answer counts.
+    const noYahoo = router([
+      [/api\/yahoo/, () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })],
+      [/finnhub\.io\/api\/v1\/quote/, () => json({ c: 0, d: null, dp: null, h: 0, l: 0, o: 0, pc: 0, t: 0 })],
+      [/finnhub\.io\/api\/v1\/search/, () => json({ count: 0, result: [] })],
+    ]);
+    expect((await checkTicker('ZZZZ', settings({ finnhubApiKey: 'k' }), [], noYahoo.fn)).status).toBe('notFound');
+  });
+
+  it('offers close spellings of an unfamiliar ticker when it could not be checked', async () => {
+    const offline = router([]);
+    const r = await checkTicker('APPL', settings(), [], offline.fn);
+    expect(r).toMatchObject({ status: 'unchecked', suggestions: [{ ticker: 'AAPL' }] });
+    // A ticker the app knows gets no hint.
+    expect(await checkTicker('VTIP', settings(), [], offline.fn)).toMatchObject({
+      status: 'unchecked',
+      suggestions: [],
+    });
   });
 });
 
@@ -147,6 +202,9 @@ describe('suggestions', () => {
     expect(closeSpellings('BRKB').map((s) => s.ticker)).toContain('BRK.B');
     expect(closeSpellings('QQQQ').map((s) => s.ticker)).toContain('QQQ');
     expect(closeSpellings('MXWOL', ['MXWO.L']).map((s) => s.ticker)).toEqual(['MXWO.L']);
+    // An exchange or share-class ending left out.
+    expect(closeSpellings('MXWO', ['MXWO.L']).map((s) => s.ticker)).toEqual(['MXWO.L']);
+    expect(closeSpellings('BRK').map((s) => s.ticker)).toContain('BRK.B');
     // Tickers of up to 4 letters allow one slip only, so they don't match half the list.
     expect(closeSpellings('VOX').every((s) => distance('VOX', s.ticker) <= 1)).toBe(true);
     expect(closeSpellings('APPL').map((s) => s.ticker)).not.toContain('PYPL');

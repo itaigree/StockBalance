@@ -20,7 +20,8 @@ const YAHOO_UNAVAILABLE =
   "Couldn't reach Yahoo (Yahoo prices need the app running on your computer with npm start, or a price forwarder set in Settings).";
 const FORWARDER_UNAVAILABLE = "Couldn't reach your price forwarder; check its address in Settings.";
 
-type One = { price: number } | { error: string; unknown?: UnknownTicker };
+/** A price, or why there is none: `unknown` when the source says so, `temporary` when it may work later. */
+type One = { price: number } | { error: string; unknown?: UnknownTicker; temporary?: boolean };
 
 /**
  * URL of the Yahoo chart API: through the user's price forwarder when one is set, otherwise
@@ -60,6 +61,8 @@ export async function fetchPrices(
   const key = settings.finnhubApiKey.trim();
   let missing = list;
   const reasons: Record<string, string[]> = {};
+  /** Tickers Yahoo couldn't answer for now (timeout, limits, its own errors). */
+  const yahooLater = new Set<string>();
   const record = (results: One[], tickersDone: string[], source: PriceQuote['source']) => {
     const stillMissing: string[] = [];
     results.forEach((r, i) => {
@@ -67,8 +70,11 @@ export async function fetchPrices(
       if ('price' in r) quotes[t] = { priceUsd: r.price, asOf: now().toISOString(), source };
       else {
         (reasons[t] ??= []).push(r.error);
-        // The first source's word counts (Yahoo's "lists it in GBp" says more than Finnhub's "unknown").
-        if (r.unknown && !unknown[t]) unknown[t] = r.unknown;
+        if (source === 'yahoo' && r.temporary) yahooLater.add(t);
+        // The first source's word counts (Yahoo's "lists it in GBp" says more than Finnhub's
+        // "unknown"); Finnhub, which covers only US stocks, doesn't decide for a Yahoo that
+        // couldn't answer for now.
+        if (r.unknown && !unknown[t] && !(source === 'finnhub' && yahooLater.has(t))) unknown[t] = r.unknown;
         stillMissing.push(t);
       }
     });
@@ -112,18 +118,22 @@ async function yahooOne(
 ): Promise<One & { unavailable?: boolean }> {
   const r = await getJson(fetchImpl, yahooChartUrl(yahooSymbol(ticker), proxyUrl), timeoutMs);
   // The proxy or forwarder is there, but Yahoo is refusing for a while: say so, and keep trying the others.
-  if (r.status === 429) return { error: 'Yahoo is limiting requests; try again in a few minutes.' };
+  if (r.status === 429) return { error: 'Yahoo is limiting requests; try again in a few minutes.', temporary: true };
+  const yahooProblem = r.status !== undefined && r.status >= 500;
   if (!r.ok) {
-    if (r.kind === 'timeout') return { error: "Yahoo didn't answer in time." };
-    if (r.status !== undefined && r.status >= 500) return { error: `Yahoo had a problem (HTTP ${r.status}); try again later.` };
+    if (r.kind === 'timeout') return { error: "Yahoo didn't answer in time.", temporary: true };
+    if (yahooProblem) return { error: `Yahoo had a problem (HTTP ${r.status}); try again later.`, temporary: true };
     return { error: unavailableMessage(proxyUrl), unavailable: true };
   }
   const error = pick(r.json, 'chart', 'error');
   if (error) {
+    if (yahooProblem) return { error: `Yahoo had a problem (HTTP ${r.status}); try again later.`, temporary: true };
     const description = pick(error, 'description');
+    // Only "Not Found" says Yahoo doesn't know the symbol (it answers other refusals the same way).
+    const notFound = r.status === 404 || pick(error, 'code') === 'Not Found';
     return {
       error: `Yahoo: ${typeof description === 'string' && description ? description : 'unknown symbol'}.`,
-      unknown: 'missing',
+      ...(notFound ? { unknown: 'missing' as const } : {}),
     };
   }
   const meta = pick(r.json, 'chart', 'result', 0, 'meta');
@@ -147,7 +157,9 @@ async function yahooPrices(tickers: string[], proxyUrl: string, fetchImpl: Fetch
   if ('unavailable' in first && first.unavailable) return tickers.map(() => ({ error: unavailableMessage(proxyUrl) }));
   const rest = await mapLimit(tickers.slice(1), CONCURRENCY, (t) => yahooOne(t, proxyUrl, fetchImpl, timeoutMs));
   return [first, ...rest].map((r) =>
-    'price' in r ? { price: r.price } : { error: r.error, ...(r.unknown ? { unknown: r.unknown } : {}) },
+    'price' in r
+      ? { price: r.price }
+      : { error: r.error, ...(r.unknown ? { unknown: r.unknown } : {}), ...(r.temporary ? { temporary: true } : {}) },
   );
 }
 
@@ -159,14 +171,14 @@ async function finnhubPrices(tickers: string[], key: string, fetchImpl: FetchFn,
     const r = await getJson(fetchImpl, url, timeoutMs);
     // 401 means the key is wrong, so the other tickers would fail too; 403 is Finnhub refusing one
     // symbol that the plan doesn't cover (e.g. non-US listings on the free plan).
-    if (!r.ok && r.kind === 'timeout') return { error: "Finnhub didn't answer in time." };
+    if (!r.ok && r.kind === 'timeout') return { error: "Finnhub didn't answer in time.", temporary: true };
     const status = r.status;
     if (status === 401) {
       keyRejected = true;
       return { error: 'Finnhub rejected the API key.' };
     }
     if (status === 403) return { error: "Finnhub doesn't give this stock's price on your plan." };
-    if (status === 429) return { error: 'Finnhub rate limit reached; try again in a minute.' };
+    if (status === 429) return { error: 'Finnhub rate limit reached; try again in a minute.', temporary: true };
     if (!r.ok) return { error: "Couldn't reach Finnhub." };
     const apiError = pick(r.json, 'error');
     if (typeof apiError === 'string') return { error: `Finnhub: ${apiError}` };

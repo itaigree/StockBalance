@@ -265,9 +265,11 @@ source could be asked (offline, no proxy or forwarder, rate limits), that it cou
 which says nothing about the ticker. Nothing is checked when prices are set to manual.
 
 Suggestions come from Yahoo's search (`/v1/finance/search` through the local proxy or the price
-forwarder, US listings of stocks and funds only), Finnhub's symbol search when a key is set, and close
+forwarder, US listings of stocks and funds only), Finnhub's symbol search when a key is set and
+Finnhub is a price source (Automatic or Finnhub), and close
 spellings (edit distance 1 for tickers of up to 4 letters, else 2; a swap of two letters counts as
-one) among the user's own tickers and a built-in list of well-known US stocks and funds. The closest
+one; the same ticker without its exchange or share-class ending, like MXWO for MXWO.L, counts too)
+among the user's own tickers and a built-in list of well-known US stocks and funds. The closest
 spellings come first; ties keep the order found (the search's own ranking, then the user's tickers,
 then the well-known ones).
 

@@ -159,3 +159,27 @@ test('groups on a phone: move stocks into a group and split it by shares of the 
   await page.getByLabel('Amount to invest in ILS').fill('10000');
   await expect(page.getByRole('region', { name: 'Orders to place' })).toBeVisible();
 });
+
+test('a stock typed wrong gets a suggestion, and the one put in shows its price (phone)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#/categories');
+  await page.getByRole('button', { name: 'Add your first category' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name').fill('Fun');
+  await dialog.getByLabel('Ticker, row 1').fill('appl');
+  await dialog.getByLabel('Target percent, row 1').fill('100');
+  await expect(dialog.getByText(/No price found for APPL\. Did you mean/)).toBeVisible();
+  await dialog.getByRole('button', { name: /^Use AAPL/ }).click();
+  await expect(dialog.getByLabel('Ticker, row 1')).toHaveValue('AAPL');
+  await dialog.getByLabel('Target percent, row 1').click();
+  await expect(dialog.getByText('$235.40')).toBeVisible();
+  // The short note stays on one line under the ticker (nothing below moves when it changes).
+  const note = dialog.locator('.ticker-note').first();
+  expect((await note.boundingBox())!.height).toBeLessThan(24);
+  const overflow = await dialog.evaluate((d) => d.scrollWidth - d.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  await dialog.getByRole('button', { name: 'Save category' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('AAPL 100%')).toBeVisible();
+});
+

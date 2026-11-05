@@ -1,4 +1,4 @@
-import { expect, test, PRICES } from './fixtures';
+import { expect, test, PRICES, saveCategory } from './fixtures';
 import type { Locator, Page } from '@playwright/test';
 
 /*
@@ -117,8 +117,7 @@ async function openEditor(page: Page, name: string): Promise<Locator> {
 }
 
 async function save(dialog: Locator) {
-  await dialog.getByRole('button', { name: 'Save category' }).click();
-  await expect(dialog).toBeHidden();
+  await saveCategory(dialog);
 }
 
 /** The value of a text field. */

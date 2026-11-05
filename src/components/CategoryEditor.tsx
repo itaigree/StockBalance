@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import type { Category, ContributionRule } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import type { Category, ContributionRule, PriceQuote } from '../types';
 import { useApp } from '../state/AppState';
 import { apportion } from '../engine/apportion';
 import { offBy001 } from '../engine/targets';
@@ -8,6 +8,7 @@ import { fmtPercent, isTicker, normalizeTicker, parseNumber } from '../lib/forma
 import { RULE_EXPLANATION } from '../lib/rules';
 import { Modal } from './Modal';
 import { NumberField } from './NumberField';
+import { TickerCheckNote, useTickerChecks } from './TickerCheckNote';
 import './CategoryEditor.css';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -153,7 +154,7 @@ function stateFrom(category: Category | null): { rows: Row[]; groups: Group[] } 
 
 /** Create or edit a category: name, color, contribution rule, cash, and its stocks (target % and shares owned). */
 export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
-  const { data } = useApp();
+  const { data, actions } = useApp();
   /** The category as it was when the editor opened (the page may pass a newer one later). */
   const [opened] = useState(category);
   const [name, setName] = useState(category?.name ?? '');
@@ -177,6 +178,26 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const [submitted, setSubmitted] = useState(false);
   /** Why saving was refused although every field is fine (the category changed somewhere else). */
   const [conflict, setConflict] = useState<string | null>(null);
+  /** Checks of the stocks added here, by getting their price (see needsCheck). */
+  const tickerChecks = useTickerChecks();
+  /** Stocks no price was found for that saving asked about (pressing Save again keeps them). */
+  const [keepUnknown, setKeepUnknown] = useState<Set<string>>(new Set());
+  /** When saving last asked about them: a double-click's second click doesn't answer the question. */
+  const askedAt = useRef(0);
+  /** Saving waits for the checks of new stocks still running (also read at once, through the ref). */
+  const [checkingToSave, setCheckingToSave] = useState(false);
+  const checkingRef = useRef(false);
+  const setChecking = (on: boolean) => {
+    checkingRef.current = on;
+    setCheckingToSave(on);
+  };
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [moveChoice, setMoveChoice] = useState('');
   const moveSelect = useRef<HTMLSelectElement>(null);
   const boxAddStock = useRef<HTMLButtonElement>(null);
@@ -481,6 +502,36 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     setRows((rs) => rs.map((r) => (r.group !== g.key ? r : withShare(r, equal ? null : (byKey.get(r.key) ?? null)))));
   };
 
+  /**
+   * A stock added here (not in the category when the editor opened) with no price known yet: it is
+   * checked by getting its price, unless prices are entered by hand.
+   */
+  const needsCheck = (t: string) =>
+    isTicker(t) &&
+    data.settings.priceProvider !== 'manual' &&
+    !(t in data.prices) &&
+    !(opened && (t in opened.holdings || opened.targets.some((x) => x.ticker === t)));
+  /** Put a suggested ticker in a row (and check it); the keyboard goes back to its field. */
+  const takeSuggestion = (r: Row, t: string) => {
+    updateRow(r.key, { ticker: t });
+    if (needsCheck(t)) void tickerChecks.check(t);
+    document.getElementById(`ticker-${r.key}`)?.focus();
+  };
+  /** The stocks saving keeps (a single one with neither a target nor shares is left out). */
+  const keptRows = filled.filter((r) => (r.group ? !!groupOfRow(r) : (r.percent ?? 0) > 0 || (r.shares ?? 0) > 0));
+  /** Stocks added here that saving keeps, to be checked (see needsCheck). */
+  const added = [...new Set(keptRows.map((r) => normalizeTicker(r.ticker)).filter(needsCheck))];
+  const noPriceFound = (t: string) => {
+    const c = tickerChecks.get(t);
+    return c !== undefined && c !== 'checking' && c.status === 'notFound';
+  };
+  /** Stocks with no price found that saving asked about and that are still here. */
+  const askedUnknown = added.filter((t) => keepUnknown.has(t) && noPriceFound(t));
+  /** Everything the form holds: a save that waited for checks goes ahead only if it didn't change. */
+  const formKey = JSON.stringify([name, color, ruleKind, fixedAmount, percent, cash, notes, rows, groups, unreadable]);
+  const formKeyRef = useRef(formKey);
+  formKeyRef.current = formKey;
+
   /** Errors the open group box doesn't show: those of the single stocks and of other groups. */
   const hiddenByBox = (g: Group) =>
     single.some((r) => errors.rows[r.key]) ||
@@ -488,11 +539,36 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
   const boxHasErrors = (g: Group) => !!errors.groups[g.key] || membersOf(g).some((r) => errors.rows[r.key]);
 
   const save = () => {
+    // A second click while checks run, or right after saving asked about a stock, does nothing.
+    if (checkingRef.current || Date.now() - askedAt.current < 700) return;
     setSubmitted(true);
     setConflict(null);
     if (!valid) {
       // Show the errors: leave a group box that has none of its own.
       if (editing && hiddenByBox(editing) && !boxHasErrors(editing)) setOpenGroup(null);
+      return;
+    }
+    // Stocks added here are checked by getting their price: wait for the checks still running (and
+    // save then only if nothing was changed meanwhile), then ask once about those with no price found
+    // (pressing Save again keeps them as typed).
+    const running = added.filter((t) => {
+      const c = tickerChecks.get(t);
+      return !c || c === 'checking';
+    });
+    if (running.length > 0) {
+      setChecking(true);
+      const keyAtSave = formKey;
+      void Promise.all(running.map((t) => tickerChecks.check(t))).then(() => {
+        if (!mounted.current) return;
+        setChecking(false);
+        if (formKeyRef.current === keyAtSave) saveRef.current();
+      });
+      return;
+    }
+    const notFound = added.filter((t) => noPriceFound(t) && !keepUnknown.has(t));
+    if (notFound.length > 0) {
+      setKeepUnknown((s) => new Set([...s, ...notFound]));
+      askedAt.current = Date.now();
       return;
     }
     const contribution: ContributionRule =
@@ -537,6 +613,13 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
       holdings = merged;
       if (cashIls === opened.cashIls) cashIls = now.cashIls;
     }
+    // The prices found checking the stocks added (so they aren't fetched again right away).
+    const found: Record<string, PriceQuote> = {};
+    for (const t of added) {
+      const c = tickerChecks.get(t);
+      if (c && c !== 'checking' && c.status === 'ok') found[t] = c.quote;
+    }
+    if (Object.keys(found).length > 0) actions.addPrices(found);
     const trimmedNotes = notes.trim();
     onSave({
       id: category?.id ?? newId(),
@@ -566,6 +649,9 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
     });
   };
 
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
   const show = (msg?: string) => (submitted && msg ? <span className="error-text">{msg}</span> : null);
 
   const removeRow = (r: Row) =>
@@ -585,9 +671,21 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
         placeholder={placeholder}
         autoCapitalize="characters"
         spellCheck={false}
+        id={`ticker-${r.key}`}
         onChange={(e) => updateRow(r.key, { ticker: e.target.value.toUpperCase() })}
+        onBlur={() => {
+          const t = normalizeTicker(r.ticker);
+          if (needsCheck(t)) void tickerChecks.check(t);
+        }}
       />
       {show(errors.rows[r.key])}
+      {needsCheck(normalizeTicker(r.ticker)) && (
+        <TickerCheckNote
+          ticker={r.ticker}
+          check={tickerChecks.checks[normalizeTicker(r.ticker)]}
+          onUse={(t) => takeSuggestion(r, t)}
+        />
+      )}
     </>
   );
   const sharesInput = (r: Row, i: number) => (
@@ -861,6 +959,14 @@ export function CategoryEditor({ category, existing, onSave, onClose }: Props) {
           {conflict && valid && (
             <span className="error-text spacer" role="alert">
               {conflict}
+            </span>
+          )}
+          {checkingToSave && <span className="muted spacer">Checking the new stocks…</span>}
+          {askedUnknown.length > 0 && valid && !conflict && !checkingToSave && (
+            <span className="warn-text spacer" role="alert">
+              No price was found for {askedUnknown.join(', ')}. Check how{' '}
+              {askedUnknown.length === 1 ? 'it is' : 'they are'} written, or press Save again to keep{' '}
+              {askedUnknown.length === 1 ? 'it' : 'them'} as typed.
             </span>
           )}
           <button type="button" className="secondary" onClick={onClose}>

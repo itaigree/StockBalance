@@ -92,6 +92,8 @@ export interface AppActions {
   deleteCategory(id: Id): void;
   moveCategory(id: Id, delta: -1 | 1): void;
   setManualPrice(ticker: string, priceUsd: number): void;
+  /** Prices found elsewhere (e.g. checking a stock that is added). */
+  addPrices(quotes: Record<string, PriceQuote>): void;
   setManualFx(usdIls: number): void;
   updateSettings(patch: Partial<Settings>): void;
   recordTransaction(tx: Transaction): void;
@@ -250,6 +252,7 @@ export function AppStateProvider({ children, initialData }: { children: ReactNod
       upsertCategory: (category) => dispatch({ type: 'upsertCategory', category }),
       deleteCategory: (id) => dispatch({ type: 'deleteCategory', id }),
       moveCategory: (id, delta) => dispatch({ type: 'moveCategory', id, delta }),
+      addPrices: (quotes) => dispatch({ type: 'setPrices', quotes }),
       setManualPrice: (ticker, priceUsd) =>
         dispatch({ type: 'setManualPrice', ticker, priceUsd, asOf: new Date().toISOString() }),
       setManualFx: (usdIls) =>

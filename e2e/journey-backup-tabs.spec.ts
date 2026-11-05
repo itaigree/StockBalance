@@ -341,6 +341,8 @@ test('manual prices: typed prices are kept after a reload and a rate refresh; a 
   await dialog.getByLabel('Ticker, row 1').fill('msft');
   await dialog.getByLabel('Target percent, row 1').fill('100');
   await dialog.getByLabel('Shares owned, row 1').fill('2.5');
+  // Prices are manual, so the stock isn't checked and saving doesn't ask about it.
+  await expect(dialog.getByText(/MSFT/)).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Save category' }).click();
   await expect(dialog).toBeHidden();
 

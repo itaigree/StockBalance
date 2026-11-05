@@ -224,6 +224,19 @@ main {
 .warn-text {
   color: var(--warn);
 }
+/* What checking a typed ticker found, under its field (kept narrow, so the column stays narrow). */
+.ticker-note {
+  margin-top: 0.2rem;
+  max-width: 14rem;
+  white-space: normal;
+  text-align: left;
+}
+.ticker-note .link-button {
+  font-weight: 600;
+}
+.ticker-note.one-line {
+  white-space: nowrap;
+}
 .bad-text {
   color: var(--bad);
 }
@@ -674,7 +687,9 @@ label {
   .modal-backdrop {
     padding: 0.5rem;
   }
-  .modal-footer .error-text {
+  .modal-footer .error-text,
+  .modal-footer .warn-text,
+  .modal-footer .muted {
     flex-basis: 100%;
   }
 }
